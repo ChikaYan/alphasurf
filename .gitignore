@@ -24,7 +24,7 @@ tb.sh
 
 .ipynb_checkpoints/
 
-# *.sh
+*.sh
 
 blender/
 
