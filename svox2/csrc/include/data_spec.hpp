@@ -13,10 +13,33 @@ enum BasisType {
   // BASIS_TYPE_ASG = 3
   BASIS_TYPE_3D_TEXTURE = 4,
   BASIS_TYPE_MLP = 255,
+
+  // for surface type
+  SURFACE_TYPE_NONE = 100,
+  SURFACE_TYPE_PLANE = 101,
+  SURFACE_TYPE_SDF = 102,
+  SURFACE_TYPE_UDF = 103,
+  SURFACE_TYPE_UDF_ALPHA = 104,
+
+  // for cubic solution
+  CUBIC_TYPE_NO_ROOT = 200,
+  CUBIC_TYPE_LINEAR = 201,
+  CUBIC_TYPE_POLY_ONE_R = 202, // polynomial with a single distinct real root
+  CUBIC_TYPE_POLY = 203, // polynomial with a two real roots
+  CUBIC_TYPE_CUBIC_ONE_R = 204, // cubic with three real and equal roots
+  CUBIC_TYPE_CUBIC_THREE_R = 205, // cubic with three real and distinct roots
+  CUBIC_TYPE_CUBIC_ONE_R_ = 206, // cubic with a single real root
+};
+
+enum ActivationType {
+  SIGMOID_FN = 0,
+  EXP_FN = 1,
 };
 
 struct SparseGridSpec {
   Tensor density_data;
+  Tensor surface_data;
+  Tensor level_set_data;
   Tensor sh_data;
   Tensor links;
   Tensor _offset;
@@ -27,12 +50,19 @@ struct SparseGridSpec {
 
   int basis_dim;
   uint8_t basis_type;
+  uint8_t surface_type;
   Tensor basis_data;
+  float fake_sample_std;
+  float truncated_vol_render_a;
 
   inline void check() {
     CHECK_INPUT(density_data);
     CHECK_INPUT(sh_data);
     CHECK_INPUT(links);
+    if (surface_type != SURFACE_TYPE_NONE){
+      CHECK_INPUT(surface_data);
+      CHECK_INPUT(level_set_data);
+    }
     if (background_links.defined()) {
       CHECK_INPUT(background_links);
       CHECK_INPUT(background_data);
@@ -53,9 +83,11 @@ struct SparseGridSpec {
 
 struct GridOutputGrads {
   torch::Tensor grad_density_out;
+  torch::Tensor grad_surface_out;
   torch::Tensor grad_sh_out;
   torch::Tensor grad_basis_out;
   torch::Tensor grad_background_out;
+  torch::Tensor grad_fake_sample_std_out;
 
   torch::Tensor mask_out;
   torch::Tensor mask_background_out;
@@ -71,6 +103,12 @@ struct GridOutputGrads {
     }
     if (grad_background_out.defined()) {
       CHECK_INPUT(grad_background_out);
+    }
+    if (grad_surface_out.defined()) {
+      CHECK_INPUT(grad_surface_out);
+    }
+    if (grad_fake_sample_std_out.defined()) {
+      CHECK_INPUT(grad_fake_sample_std_out);
     }
     if (mask_out.defined() && mask_out.size(0) > 0) {
       CHECK_INPUT(mask_out);
@@ -104,11 +142,26 @@ struct CameraSpec {
 struct RaysSpec {
   Tensor origins;
   Tensor dirs;
+  Tensor masks;
   inline void check() {
     CHECK_INPUT(origins);
     CHECK_INPUT(dirs);
+    CHECK_INPUT(masks);
     TORCH_CHECK(origins.is_floating_point());
     TORCH_CHECK(dirs.is_floating_point());
+    // TORCH_CHECK(masks.is_bool());
+  }
+};
+
+// struct to store interesctions between ray and voxels
+struct RayVoxIntersecSpec {
+  Tensor voxel_ls;
+  Tensor vox_start_i;
+  Tensor vox_num;
+  inline void check() {
+    CHECK_INPUT(voxel_ls);
+    CHECK_INPUT(vox_start_i);
+    CHECK_INPUT(vox_num);
   }
 };
 
@@ -124,6 +177,19 @@ struct RenderOptions {
 
   bool last_sample_opaque;
 
+  bool surf_fake_sample;
+  float surf_fake_sample_min_vox_len;
+  bool limited_fake_sample;
+
+  bool no_surf_grad_from_sh;
+  // enum ActivationType alpha_activation_type;
+  uint8_t alpha_activation_type;
+  bool fake_sample_l_dist;
+  bool fake_sample_normalize_surf;
+
+  bool only_outward_intersect;
+  bool truncated_vol_render;
+  float trunc_vol_weight_min;
   // bool randomize;
   // float random_sigma_std;
   // float random_sigma_std_background;

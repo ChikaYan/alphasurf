@@ -31,6 +31,30 @@ class Rays:
 
     def __len__(self):
         return self.origins.size(0)
+    
+@dataclass
+class MaskedRays:
+    origins: Union[torch.Tensor, List[torch.Tensor]]
+    dirs: Union[torch.Tensor, List[torch.Tensor]]
+    gt: Union[torch.Tensor, List[torch.Tensor]]
+    mask: Union[torch.Tensor, List[torch.Tensor]]
+
+    def to(self, *args, **kwargs):
+        origins = self.origins.to(*args, **kwargs)
+        dirs = self.dirs.to(*args, **kwargs)
+        gt = self.gt.to(*args, **kwargs)
+        mask = self.mask.to(*args, **kwargs)
+        return MaskedRays(origins, dirs, gt, mask)
+
+    def __getitem__(self, key):
+        origins = self.origins[key]
+        dirs = self.dirs[key]
+        gt = self.gt[key]
+        mask = self.mask[key]
+        return MaskedRays(origins, dirs, gt, mask)
+
+    def __len__(self):
+        return self.origins.size(0)
 
 @dataclass
 class Intrin:
@@ -76,7 +100,7 @@ class Timing:
 
 
 def get_expon_lr_func(
-    lr_init, lr_final, lr_delay_steps=0, lr_delay_mult=1.0, max_steps=1000000
+    lr_init, lr_final, lr_delay_steps=0, lr_delay_mult=1.0, max_steps=1000000, fix_delay_step=0
 ):
     """
     Continuous learning rate decay function. Adapted from JaxNeRF
@@ -94,9 +118,13 @@ def get_expon_lr_func(
     """
 
     def helper(step):
+        
         if step < 0 or (lr_init == 0.0 and lr_final == 0.0):
             # Disable this parameter
             return 0.0
+        step -= fix_delay_step
+        if step < 0:
+            return lr_init * lr_delay_mult if lr_delay_mult > 0 else lr_init
         if lr_delay_steps > 0:
             # A kind of reverse cosine decay.
             delay_rate = lr_delay_mult + (1 - lr_delay_mult) * np.sin(
@@ -107,6 +135,48 @@ def get_expon_lr_func(
         t = np.clip(step / max_steps, 0, 1)
         log_lerp = np.exp(np.log(lr_init) * (1 - t) + np.log(lr_final) * t)
         return delay_rate * log_lerp
+
+    return helper
+
+def get_linear_expon_lr_func(
+    lr_init, lr_final, lr_delay_steps=0, lr_delay_mult=1.0, max_steps=1000000, fix_delay_step=0,
+):
+
+    def helper(step):
+        
+        if step < 0 or (lr_init == 0.0 and lr_final == 0.0):
+            # Disable this parameter
+            return 0.0
+        step -= fix_delay_step
+        if step < 0:
+            return lr_init * lr_delay_mult if lr_delay_mult > 0 else lr_init
+
+        if step < lr_delay_steps:
+            return ((1 - lr_delay_mult) * step / lr_delay_steps + lr_delay_mult) * lr_init
+
+        else:
+            step -= lr_delay_steps
+            t = np.clip(step / max_steps, 0, 1)
+            log_lerp = np.exp(np.log(lr_init) * (1 - t) + np.log(lr_final) * t)
+            return log_lerp
+
+    return helper
+
+def get_linear_lr_func(
+    lr_init, lr_final, lr_delay_steps=0, max_steps=1000000
+):
+
+    def helper(step):
+        if step < 0 or (lr_init == 0.0 and lr_final == 0.0):
+            # Disable this parameter
+            return 0.0
+        if step <= lr_delay_steps:
+            return lr_init
+        if step >= max_steps:
+            return lr_final
+
+        rate = (lr_final - lr_init) / max_steps
+        return lr_init + rate * (step-lr_delay_steps)
 
     return helper
 
@@ -476,3 +546,9 @@ def pose_spherical(theta : float, phi : float, radius : float, offset : Optional
     if offset is not None:
         c2w[:3, 3] += offset
     return c2w
+
+def sigmoid_np(x):
+    return 1. / (1. + np.exp(-x))
+
+def logit_np(x):
+    return np.log(x / (1. - x))

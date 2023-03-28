@@ -12,9 +12,13 @@ struct PackedSparseGridSpec {
     PackedSparseGridSpec(SparseGridSpec& spec)
         :
           density_data(spec.density_data.data_ptr<float>()),
+          surface_data(spec.surface_data.defined() ? spec.surface_data.data_ptr<float>() : nullptr),
+          level_set_data(spec.level_set_data.defined() ? spec.level_set_data.data_ptr<float>() : nullptr),
+          level_set_num(spec.level_set_data.defined() ? (int)spec.level_set_data.size(0) : 0),
           sh_data(spec.sh_data.data_ptr<float>()),
           links(spec.links.data_ptr<int32_t>()),
           basis_type(spec.basis_type),
+          surface_type(spec.surface_type),
           basis_data(spec.basis_data.defined() ? spec.basis_data.data_ptr<float>() : nullptr),
           background_links(spec.background_links.defined() ?
                            spec.background_links.data_ptr<int32_t>() :
@@ -40,14 +44,20 @@ struct PackedSparseGridSpec {
                   spec._offset.data_ptr<float>()[2]},
           _scaling{spec._scaling.data_ptr<float>()[0],
                    spec._scaling.data_ptr<float>()[1],
-                   spec._scaling.data_ptr<float>()[2]} {
+                   spec._scaling.data_ptr<float>()[2]},
+         fake_sample_std(spec.fake_sample_std),
+         truncated_vol_render_a(spec.truncated_vol_render_a){
     }
 
     float* __restrict__ density_data;
+    float* __restrict__ surface_data;
+    float* __restrict__ level_set_data;
+    const int level_set_num;
     float* __restrict__ sh_data;
     const int32_t* __restrict__ links;
 
     const uint8_t basis_type;
+    const uint8_t surface_type;
     float* __restrict__ basis_data;
 
     const int32_t* __restrict__ background_links;
@@ -59,11 +69,15 @@ struct PackedSparseGridSpec {
     const int basis_dim, sh_data_dim, basis_reso;
     const float _offset[3];
     const float _scaling[3];
+    const float fake_sample_std;
+    const float truncated_vol_render_a;
 };
 
 struct PackedGridOutputGrads {
     PackedGridOutputGrads(GridOutputGrads& grads) :
         grad_density_out(grads.grad_density_out.defined() ? grads.grad_density_out.data_ptr<float>() : nullptr),
+        grad_surface_out(grads.grad_surface_out.defined() ? grads.grad_surface_out.data_ptr<float>() : nullptr),
+        grad_fake_sample_std_out(grads.grad_fake_sample_std_out.defined() ? grads.grad_fake_sample_std_out.data_ptr<float>() : nullptr),
         grad_sh_out(grads.grad_sh_out.defined() ? grads.grad_sh_out.data_ptr<float>() : nullptr),
         grad_basis_out(grads.grad_basis_out.defined() ? grads.grad_basis_out.data_ptr<float>() : nullptr),
         grad_background_out(grads.grad_background_out.defined() ? grads.grad_background_out.data_ptr<float>() : nullptr),
@@ -74,6 +88,8 @@ struct PackedGridOutputGrads {
     float* __restrict__ grad_sh_out;
     float* __restrict__ grad_basis_out;
     float* __restrict__ grad_background_out;
+    float* __restrict__ grad_surface_out;
+    float* __restrict__ grad_fake_sample_std_out;
 
     bool* __restrict__ mask_out;
     bool* __restrict__ mask_background_out;
@@ -102,9 +118,24 @@ struct PackedCameraSpec {
 struct PackedRaysSpec {
     const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> origins;
     const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> dirs;
+    // const torch::PackedTensorAccessor32<bool, 1, torch::RestrictPtrTraits> masks;
+    bool* __restrict__ masks;
     PackedRaysSpec(RaysSpec& spec) :
         origins(spec.origins.packed_accessor32<float, 2, torch::RestrictPtrTraits>()),
-        dirs(spec.dirs.packed_accessor32<float, 2, torch::RestrictPtrTraits>())
+        dirs(spec.dirs.packed_accessor32<float, 2, torch::RestrictPtrTraits>()),
+        // masks(spec.masks.packed_accessor32<bool, 1, torch::RestrictPtrTraits>())
+        masks(spec.masks.data_ptr<bool>())
+    { }
+};
+
+struct PackedRayVoxIntersecSpec {
+    const torch::PackedTensorAccessor32<int32_t, 2, torch::RestrictPtrTraits> voxel_ls;
+    const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> vox_start_i; //TODO: convert to list!
+    const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> vox_num;
+    PackedRayVoxIntersecSpec(RayVoxIntersecSpec& spec) :
+        voxel_ls(spec.voxel_ls.packed_accessor32<int32_t, 2, torch::RestrictPtrTraits>()),
+        vox_start_i(spec.vox_start_i.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>()),
+        vox_num(spec.vox_num.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>())
     { }
 };
 
@@ -126,6 +157,28 @@ struct SingleRaySpec {
     float tmin, tmax, world_step;
 
     float pos[3];
+    int32_t l[3];
+    RandomEngine32 rng;
+};
+
+struct SingleRaySpecDouble {
+    SingleRaySpecDouble() = default;
+    __device__ SingleRaySpecDouble(const float* __restrict__ origin, const float* __restrict__ dir)
+        : origin{origin[0], origin[1], origin[2]},
+          dir{dir[0], dir[1], dir[2]} {}
+    __device__ void set(const float* __restrict__ origin, const float* __restrict__ dir) {
+#pragma unroll 3
+        for (int i = 0; i < 3; ++i) {
+            this->origin[i] = static_cast<double>(origin[i]);
+            this->dir[i] = static_cast<double>(dir[i]);
+        }
+    }
+
+    double origin[3];
+    double dir[3];
+    float tmin, tmax, world_step;
+
+    double pos[3];
     int32_t l[3];
     RandomEngine32 rng;
 };

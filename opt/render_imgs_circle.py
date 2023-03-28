@@ -5,7 +5,7 @@ import torch
 import svox2
 import svox2.utils
 import math
-import argparse
+import configargparse
 import numpy as np
 import os
 from os import path
@@ -16,19 +16,19 @@ from util import config_util
 import imageio
 import cv2
 from tqdm import tqdm
-parser = argparse.ArgumentParser()
+parser = configargparse.ArgumentParser()
 parser.add_argument('ckpt', type=str)
 
 config_util.define_common_args(parser)
 
 parser.add_argument('--n_eval', '-n', type=int, default=100000, help='images to evaluate (equal interval), at most evals every image')
 parser.add_argument('--traj_type',
-                    choices=['spiral', 'circle'],
+                    choices=['spiral', 'circle', 'front'],
                     default='spiral',
                     help="Render a spiral (doubles length, using 2 elevations), or just a cirle")
 parser.add_argument('--fps',
                     type=int,
-                    default=30,
+                    default=2,
                     help="FPS of video")
 parser.add_argument(
                 "--width", "-W", type=float, default=None, help="Rendering image width (only if not --traj)"
@@ -37,7 +37,7 @@ parser.add_argument(
                     "--height", "-H", type=float, default=None, help="Rendering image height (only if not --traj)"
                             )
 parser.add_argument(
-	"--num_views", "-N", type=int, default=600,
+	"--num_views", "-N", type=int, default=200,
     help="Number of frames to render"
 )
 
@@ -45,7 +45,7 @@ parser.add_argument(
 parser.add_argument(
     "--offset", type=str, default="0,0,0", help="Center point to rotate around (only if not --traj)"
 )
-parser.add_argument("--radius", type=float, default=0.85, help="Radius of orbit (only if not --traj)")
+parser.add_argument("--radius", type=float, default=2.5, help="Radius of orbit (only if not --traj)")
 parser.add_argument(
     "--elevation",
     type=float,
@@ -78,6 +78,7 @@ parser.add_argument('--crop',
                     default=1.0,
                     help="Crop (0, 1], 1.0 = full image")
 
+
 # Foreground/background only
 parser.add_argument('--nofg',
                     action='store_true',
@@ -93,9 +94,19 @@ parser.add_argument('--blackbg',
                     action='store_true',
                     default=False,
                     help="Force a black BG (behind BG model) color; useful for debugging 'clouds'")
+parser.add_argument('--render_depth',
+                    action='store_true',
+                    default=False,
+                    help="Render depth images instead")
+parser.add_argument('--depth_thresh',
+                    type=float,
+                    default=None,
+                    help="Sigma/alpha threshold for rendering depth. None means median depth")
 
 args = parser.parse_args()
-config_util.maybe_merge_config_file(args, allow_invalid=True)
+USE_KERNEL = not args.nokernel
+# USE_KERNEL = False
+# config_util.maybe_merge_config_file(args, allow_invalid=True)
 device = 'cuda:0'
 
 
@@ -111,11 +122,42 @@ if args.vec_up is None:
 else:
     args.vec_up = np.array(list(map(float, args.vec_up.split(","))))
 
+# args.vec_up = args.vec_up @ np.array([[-1, 0, 0],
+#                                       [ 0,-1, 0],
+#                                       [ 0, 0, 1]])
 
 args.offset = np.array(list(map(float, args.offset.split(","))))
+# args.traj_type = 'front'
+# args.traj_type = 'circle'
 if args.traj_type == 'spiral':
-    angles = np.linspace(-180, 180, args.num_views + 1)[:-1]
-    elevations = np.linspace(args.elevation, args.elevation2, args.num_views)
+    # angles = np.linspace(-180, 180, args.num_views + 1)[:-1]
+    # elevations = np.linspace(args.elevation, args.elevation2, args.num_views)
+    # c2ws = [
+    #     pose_spherical(
+    #         angle,
+    #         ele,
+    #         args.radius,
+    #         args.offset,
+    #         vec_up=args.vec_up,
+    #     )
+    #     for ele, angle in zip(elevations, angles)
+    # ]
+    # c2ws += [
+    #     pose_spherical(
+    #         angle,
+    #         ele,
+    #         args.radius,
+    #         args.offset,
+    #         vec_up=args.vec_up,
+    #     )
+    #     for ele, angle in zip(reversed(elevations), angles)
+    # ]
+
+    repeats = 10
+
+    angles = np.linspace(-180, 180, (args.num_views) // repeats + 1)[:-1]
+    angles = np.concatenate([angles for _ in range(repeats)])
+    elevations = np.linspace(-90, 90, args.num_views)
     c2ws = [
         pose_spherical(
             angle,
@@ -126,16 +168,53 @@ if args.traj_type == 'spiral':
         )
         for ele, angle in zip(elevations, angles)
     ]
-    c2ws += [
+elif args.traj_type == 'front':
+    args.vec_up = args.vec_up @ np.array([[-1, 0, 0],
+                                        [ 0,-1, 0],
+                                        [ 0, 0, 1]])
+
+    c2ws = [
         pose_spherical(
             angle,
-            ele,
+            args.elevation,
             args.radius,
             args.offset,
             vec_up=args.vec_up,
         )
-        for ele, angle in zip(reversed(elevations), angles)
+        for angle in np.linspace(-180, 180, args.num_views + 1)[:-1]
     ]
+
+    # positions = dset.c2w[:, :3, 3].cpu().numpy()
+    # center = np.average(positions, axis=0)
+    # center_axis = (0. - center) / np.linalg.norm(center)
+    # axis_2 = center_axis.copy()
+    # axis_2[0] += 1
+    # axis_a = np.cross(center_axis, axis_2)
+    # axis_a = axis_a / np.linalg.norm(axis_a)
+    # axis_b = np.cross(center_axis, axis_a)
+    # axis_b = axis_b / np.linalg.norm(axis_b)
+
+    # # radius ratio decides the circle radius of test camera
+    # RADIUS_RATIO = 0.5
+    # N_TEST = 100
+
+    # dists = []
+    # for i in range(positions.shape[0]):
+    #     dists.append(np.sqrt(np.sum((positions[i,...] - center) ** 2)))
+    # mean_dist = np.average(dists)
+    # radius = mean_dist * RADIUS_RATIO
+    # print(f'radius: {radius}')
+
+    # angles = np.linspace(0, 2 * np.pi, N_TEST)
+    # for i, ang in enumerate(angles):  
+    #     new_pos = center + radius * np.cos(ang) * axis_a + radius * np.sin(ang) * axis_b
+
+    #     test_cam = camera_model.Camera.from_json(str(camera_gt_dir / rgb_list[0].stem) + '.json')
+    #     test_cam.position = new_pos
+    #     test_cam.look_at(new_pos, np.array([0,0,0]), np.array([1,0,0]))
+
+    #     with open(str(camera_test_gt_dir / f'{i:06d}.json'), 'w') as f:
+    #         json.dump(test_cam.to_json(), f, indent=2)
 else :
     c2ws = [
         pose_spherical(
@@ -155,7 +234,13 @@ c2ws = torch.from_numpy(c2ws).to(device=device)
 if not path.isfile(args.ckpt):
     args.ckpt = path.join(args.ckpt, 'ckpt.npz')
 
+np.save(path.join(path.dirname(args.ckpt), 'train_cams.npy'), dset.c2w)
+np.save(path.join(path.dirname(args.ckpt), 'test_cams.npy'), c2ws.cpu().numpy())
+
 render_out_path = path.join(path.dirname(args.ckpt), 'circle_renders')
+
+if args.render_depth:
+    render_out_path += '_depth'
 
 # Handle various image transforms
 if args.crop != 1.0:
@@ -164,7 +249,10 @@ if args.vert_shift != 0.0:
     render_out_path += f'_vshift{args.vert_shift}'
 
 grid = svox2.SparseGrid.load(args.ckpt, device=device)
+# args.renderer_backend = grid.surface_type
 print(grid.center, grid.radius)
+
+# grid.density_data.data = torch.clamp_min(grid.density_data.data, torch.logit(torch.tensor(0.1)).to(grid.density_data.device))
 
 # DEBUG
 #  grid.background_data.data[:, 32:, -1] = 0.0
@@ -231,11 +319,18 @@ with torch.no_grad():
                            w, h,
                            ndc_coeffs=(-1.0, -1.0))
         torch.cuda.synchronize()
-        im = grid.volume_render_image(cam, use_kernel=True)
+        if args.render_depth:
+            im = grid.volume_render_depth_image(cam, args.depth_thresh)
+        else:
+            im = grid.volume_render_image(cam, use_kernel=USE_KERNEL)
         torch.cuda.synchronize()
-        im.clamp_(0.0, 1.0)
+        
+        if args.render_depth:
+            im = viridis_cmap(im.cpu())
+        else:
+            im.clamp_(0.0, 1.0)
+            im = im.cpu().numpy()
 
-        im = im.cpu().numpy()
         im = (im * 255).astype(np.uint8)
         frames.append(im)
         im = None

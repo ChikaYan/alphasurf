@@ -5,31 +5,28 @@ import torch
 import svox2
 import svox2.utils
 import math
-import argparse
+import configargparse
 import numpy as np
 import os
 from os import path
 from util.dataset import datasets
 from util.util import Timing, compute_ssim, viridis_cmap, pose_spherical
 from util import config_util
+import sklearn.neighbors as skln
 
 import imageio
 import cv2
 from tqdm import tqdm
-parser = argparse.ArgumentParser()
+parser = configargparse.ArgumentParser()
 parser.add_argument('ckpt', type=str)
 
 config_util.define_common_args(parser)
 
 parser.add_argument('--n_eval', '-n', type=int, default=100000, help='images to evaluate (equal interval), at most evals every image')
 parser.add_argument('--traj_type',
-                    choices=['spiral', 'circle'],
+                    choices=['spiral', 'circle', 'test', 'train'],
                     default='spiral',
                     help="Render a spiral (doubles length, using 2 elevations), or just a cirle")
-parser.add_argument('--fps',
-                    type=int,
-                    default=30,
-                    help="FPS of video")
 parser.add_argument(
                 "--width", "-W", type=float, default=None, help="Rendering image width (only if not --traj)"
                         )
@@ -37,7 +34,7 @@ parser.add_argument(
                     "--height", "-H", type=float, default=None, help="Rendering image height (only if not --traj)"
                             )
 parser.add_argument(
-	"--num_views", "-N", type=int, default=100,
+	"--num_views", "-N", type=int, default=10,
     help="Number of frames to render"
 )
 
@@ -49,13 +46,13 @@ parser.add_argument("--radius", type=float, default=2.0, help="Radius of orbit (
 parser.add_argument(
     "--elevation",
     type=float,
-    default=-45.0,
+    default=-90,
     help="Elevation of orbit in deg, negative is above",
 )
 parser.add_argument(
     "--elevation2",
     type=float,
-    default=-12.0,
+    default=90,
     help="Max elevation, only for spiral",
 )
 parser.add_argument(
@@ -71,6 +68,47 @@ parser.add_argument(
     default=0.0,
     help="vertical shift by up axis"
 )
+parser.add_argument(
+    "--use_test_cams",
+    action='store_true', 
+    default=False,
+    help="Use test cameras to extract pts"
+)
+parser.add_argument(
+    "--downsample_density",
+    type=float,
+    default=0.,
+    help="density for downsampling the pts, set to 0 to disable"
+)
+parser.add_argument(
+    "--intersect_th",
+    type=float,
+    default=0.1,
+    help="alpha threshold for determining intersections"
+)
+parser.add_argument(
+    "--out_path",
+    type=str,
+    default='pts.npy'
+)
+parser.add_argument(
+    "--del_ckpt",
+    action='store_true', 
+    default=False,
+    help="Delete ckpt after extraction"
+)
+parser.add_argument(
+    "--debug_alpha",
+    action='store_true', 
+    default=False,
+    help="Delete ckpt after extraction"
+)
+parser.add_argument(
+    "--extract_nerf",
+    action='store_true', 
+    default=False,
+    help="Delete ckpt after extraction"
+)
 
 # Camera adjustment
 parser.add_argument('--crop',
@@ -78,24 +116,9 @@ parser.add_argument('--crop',
                     default=1.0,
                     help="Crop (0, 1], 1.0 = full image")
 
-# Foreground/background only
-parser.add_argument('--nofg',
-                    action='store_true',
-                    default=False,
-                    help="Do not render foreground (if using BG model)")
-parser.add_argument('--nobg',
-                    action='store_true',
-                    default=False,
-                    help="Do not render background (if using BG model)")
 
-# Random debugging features
-parser.add_argument('--blackbg',
-                    action='store_true',
-                    default=False,
-                    help="Force a black BG (behind BG model) color; useful for debugging 'clouds'")
 
 args = parser.parse_args()
-config_util.maybe_merge_config_file(args, allow_invalid=True)
 device = 'cuda:0'
 
 
@@ -136,6 +159,25 @@ if args.traj_type == 'spiral':
         )
         for ele, angle in zip(reversed(elevations), angles)
     ]
+    c2ws = np.stack(c2ws, axis=0)
+elif args.traj_type == 'test':
+    if args.num_views >= dset.c2w.shape[0]:
+        c2ws = dset.c2w.numpy()[:, :4, :4]
+    else:
+        test_cam_ids = np.round(np.linspace(0, dset.c2w.shape[0] - 1, args.num_views)).astype(int)
+        # test_cam_ids = np.array([24])
+        print(f'Using test views with ids: {test_cam_ids}')
+        c2ws = dset.c2w.numpy()[test_cam_ids, :4, :4]
+elif args.traj_type == 'train':
+    dset_train = datasets[args.dataset_type](args.data_dir, split="train",
+                                        **config_util.build_data_options(args))
+    if args.num_views >= dset_train.c2w.shape[0]:
+        c2ws = dset_train.c2w.numpy()[:, :4, :4]
+    else:
+        test_cam_ids = np.round(np.linspace(0, dset_train.c2w.shape[0] - 1, args.num_views)).astype(int)
+        # test_cam_ids = np.array([24])
+        print(f'Using training views with ids: {test_cam_ids}')
+        c2ws = dset_train.c2w.numpy()[test_cam_ids, :4, :4]
 else :
     c2ws = [
         pose_spherical(
@@ -147,7 +189,7 @@ else :
         )
         for angle in np.linspace(-180, 180, args.num_views + 1)[:-1]
     ]
-c2ws = np.stack(c2ws, axis=0)
+    c2ws = np.stack(c2ws, axis=0)
 if args.vert_shift != 0.0:
     c2ws[:, :3, 3] += np.array(args.vec_up) * args.vert_shift
 c2ws = torch.from_numpy(c2ws).to(device=device)
@@ -155,59 +197,33 @@ c2ws = torch.from_numpy(c2ws).to(device=device)
 if not path.isfile(args.ckpt):
     args.ckpt = path.join(args.ckpt, 'ckpt.npz')
 
-render_out_path = path.join(path.dirname(args.ckpt), 'circle_depths')
-
-# Handle various image transforms
-if args.crop != 1.0:
-    render_out_path += f'_crop{args.crop}'
-if args.vert_shift != 0.0:
-    render_out_path += f'_vshift{args.vert_shift}'
 
 grid = svox2.SparseGrid.load(args.ckpt, device=device)
 print(grid.center, grid.radius)
 
-# DEBUG
-#  grid.background_data.data[:, 32:, -1] = 0.0
-#  render_out_path += '_front'
-
-if grid.use_background:
-    if args.nobg:
-        grid.background_data.data[..., -1] = 0.0
-        render_out_path += '_nobg'
-    if args.nofg:
-        grid.density_data.data[:] = 0.0
-        #  grid.sh_data.data[..., 0] = 1.0 / svox2.utils.SH_C0
-        #  grid.sh_data.data[..., 9] = 1.0 / svox2.utils.SH_C0
-        #  grid.sh_data.data[..., 18] = 1.0 / svox2.utils.SH_C0
-        render_out_path += '_nofg'
-
-    #  # DEBUG
-    #  grid.background_data.data[..., -1] = 100.0
-    #  a1 = torch.linspace(0, 1, grid.background_data.size(0) // 2, dtype=torch.float32, device=device)[:, None]
-    #  a2 = torch.linspace(1, 0, (grid.background_data.size(0) - 1) // 2 + 1, dtype=torch.float32, device=device)[:, None]
-    #  a = torch.cat([a1, a2], dim=0)
-    #  c = torch.stack([a, 1-a, torch.zeros_like(a)], dim=-1)
-    #  grid.background_data.data[..., :-1] = c
-    #  render_out_path += "_gradient"
 
 config_util.setup_render_opts(grid.opt, args)
 
-if args.blackbg:
-    print('Forcing black bg')
-    render_out_path += '_blackbg'
-    grid.opt.background_brightness = 0.0
-
-render_out_path += '.mp4'
-print('Writing to', render_out_path)
-
 # NOTE: no_grad enables the fast image-level rendering kernel for cuvol backend only
 # other backends will manually generate rays per frame (slow)
+
+if args.extract_nerf:
+    grid.surface_data = None
+    grid.surface_type = svox2.__dict__['SURFACE_TYPE_NONE']
+    grid.opt.backend = 'cuvol'
+
+print('Render options', grid.opt)
+
 with torch.no_grad():
     n_images = c2ws.size(0)
     img_eval_interval = max(n_images // args.n_eval, 1)
     all_pts = []
+    if args.debug_alpha:
+        all_alphas = []
+    else:
+        all_alphas = None
     #  if args.near_clip >= 0.0:
-    grid.opt.near_clip = 0.0 #args.near_clip
+    # grid.opt.near_clip = 0.0 #args.near_clip
     if args.width is None:
         args.width = dset.get_image_size(0)[1]
     if args.height is None:
@@ -226,28 +242,68 @@ with torch.no_grad():
                            h * 0.5,
                            w, h,
                            ndc_coeffs=(-1.0, -1.0))
+        # torch.cuda.synchronize()
+        # depth = grid.volume_render_depth_image(cam)
         torch.cuda.synchronize()
-        # im = grid.volume_render_depth_image(cam)
-        pts, depth = grid.volume_render_extract_pts(cam, 0.25)
+        # pts = grid.volume_render_extract_pts(cam, sigma_thresh=args.intersect_th, intersect_th=args.intersect_th)
+        if args.debug_alpha:
+            pts, alphas = grid.volume_render_extract_pts_with_alpha(cam, sigma_thresh=args.intersect_th, intersect_th=args.intersect_th)
+        else:
+            pts = grid.volume_render_extract_pts(cam, sigma_thresh=args.intersect_th, intersect_th=args.intersect_th)
+        # depth = grid.volume_render_depth_image(cam, sigma_thresh=args.intersect_th, intersect_th=args.intersect_th) # ,
         torch.cuda.synchronize()
+        # imageio.imwrite('d.png', depth.cpu().numpy())
 
         # depth.clamp_(0.0, 1.0)
-        depth = depth /depth.max()
+        # depth = depth /depth.max()
         pts = pts.cpu().numpy()
-        depth = depth.cpu().numpy()
-        depth = (depth * 255).astype(np.uint8)
         all_pts.append(pts)
+
+        
+        # depth = depth.cpu().numpy()
+        # depth = (depth * 255).astype(np.uint8)
+        if args.debug_alpha:
+            alphas = alphas.cpu().numpy()
+            all_alphas.append(alphas)
 
         # # debug purpose, save pts from only one view
         # np.save(path.join(path.dirname(args.ckpt), 'pts.npy'), pts.astype(np.half))
-        # imageio.imsave(path.join(path.dirname(args.ckpt), 'depth.png'),depth)
+        # imageio.imsave(path.join(path.dirname(args.ckpt), 'depth.png'), depth)
 
         # raise NotImplementedError
 
         
+all_pts = np.concatenate(all_pts, 0)
+if args.debug_alpha:
+    all_alphas = np.concatenate(all_alphas, 0)
+# for dtu dataset, need to rescale the pts
+if hasattr(dset, 'pt_rescale'):
+    all_pts = dset.world2rescale(all_pts)
 
-all_pts = np.concatenate(all_pts, 0).astype(np.half)
-np.save(path.join(path.dirname(args.ckpt), 'pts.npy'), all_pts)
+# in general, need to reverse scene rescale
+if dset.scene_scale is not None:
+    all_pts = all_pts / dset.scene_scale
+
+if args.downsample_density > 0:
+    nn_engine = skln.NearestNeighbors(n_neighbors=1, radius=args.downsample_density, algorithm='kd_tree', n_jobs=-1)
+    nn_engine.fit(all_pts)
+    rnn_idxs = nn_engine.radius_neighbors(all_pts, radius=args.downsample_density, return_distance=False)
+    mask = np.ones(all_pts.shape[0], dtype=np.bool_)
+    for curr, idxs in enumerate(rnn_idxs):
+        if mask[curr]:
+            mask[idxs] = 0
+            mask[curr] = 1
+    all_pts = all_pts[mask]
+    if args.debug_alpha:
+        all_alphas = all_alphas[mask]
+
+print(f'Saving pts to {args.out_path}')
+np.save(args.out_path, all_pts)
+if args.debug_alpha:
+    np.save(args.out_path.replace('.npy', '_alpha.npy'), all_alphas)
+
+if args.del_ckpt:
+    os.remove(args.ckpt)
 
 
 
