@@ -35,7 +35,8 @@ def _get_c_extension():
         import svox2.csrc as _C
         if not hasattr(_C, "sample_grid"):
             _C = None
-    except:
+    except Exception as e:
+        print(e)
         _C = None
 
     if _C is None:

@@ -22,13 +22,13 @@ torch::Tensor cubic_extract_iso_pts(Tensor, Tensor, Tensor, Tensor,
                           int, float);
 
 // ** Surface rendering formula (trilerp)
-Tensor volume_render_surface(SparseGridSpec &, RaysSpec &, RayVoxIntersecSpec&, RenderOptions &);
+// Tensor volume_render_surface(SparseGridSpec &, RaysSpec &, RayVoxIntersecSpec&, RenderOptions &);
 // Tensor volume_render_surface_image(SparseGridSpec &, CameraSpec &, RayVoxIntersecSpec&,
 //                                  RenderOptions &);
-void volume_render_surface_backward(SparseGridSpec &, RaysSpec &, RayVoxIntersecSpec &, RenderOptions &,
-                                  Tensor, Tensor, GridOutputGrads &);
-void volume_render_surface_fused(SparseGridSpec &, RaysSpec &, RayVoxIntersecSpec&, RenderOptions &,
-                               Tensor, float, float, Tensor, GridOutputGrads &);
+// void volume_render_surface_backward(SparseGridSpec &, RaysSpec &, RayVoxIntersecSpec &, RenderOptions &,
+//                                   Tensor, Tensor, GridOutputGrads &);
+// void volume_render_surface_fused(SparseGridSpec &, RaysSpec &, RayVoxIntersecSpec&, RenderOptions &,
+//                                Tensor, float, float, Tensor, GridOutputGrads &);
 
 Tensor volume_render_surf_trav(SparseGridSpec &, RaysSpec &, RenderOptions &);
 // Tensor volume_render_surf_trav_image(SparseGridSpec &, CameraSpec &,
@@ -145,10 +145,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   _REG_FUNC(cubic_extract_iso_pts);
   _REG_FUNC(sample_grid_sh_surf);
   _REG_FUNC(sample_grid_raw_alpha);
-  _REG_FUNC(volume_render_surface);
+  // _REG_FUNC(volume_render_surface);
 //   _REG_FUNC(volume_render_surface_image);
-  _REG_FUNC(volume_render_surface_backward);
-  _REG_FUNC(volume_render_surface_fused);
+  // _REG_FUNC(volume_render_surface_backward);
+  // _REG_FUNC(volume_render_surface_fused);
   _REG_FUNC(volume_render_surf_trav);
 //   _REG_FUNC(volume_render_surf_trav_image);
   _REG_FUNC(volume_render_surf_trav_backward);
