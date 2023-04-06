@@ -1598,19 +1598,13 @@ class SparseGrid(nn.Module):
         self,
         rays: Rays,
         rgb_gt: torch.Tensor = None,
-        randomize: bool = False,
-        beta_loss: float = 0.0,
         sparsity_loss: float = 0.0,
         return_raylen: bool = False,
         return_depth: bool = False,
-        alpha_weighted_norm_loss: bool = False,
-        numerical_solution: bool = False,
         dtype = torch.double,
-        allow_outside: bool = False, 
         intersect_th: float = 0.1,
         no_surface: bool = False,
         run_backward: bool = False,
-        reg: bool = False,
         lambda_l_dist: float = 0,
         lambda_l_entropy: float = 0,
         lambda_conv_mode_samp: float = 0,
@@ -1624,6 +1618,9 @@ class SparseGrid(nn.Module):
         intersect_th: threshold for determining intersections. Used when converting to point clouds
         no_surface: do not use surface to take samples. Use for no_surface_init_iters
         """
+
+        if no_surface:
+            raise NotImplementedError("no surface init is no longer supported")
         
         ########### Preprocess Camera Rays ###########
         self.sparse_grad_indexer = None
@@ -1668,255 +1665,6 @@ class SparseGrid(nn.Module):
         if return_raylen:
             return tmax - t
 
-        if self.surface_type == SURFACE_TYPE_VOXEL_FACE:
-            # take samples at ray-voxel intersections
-            # l, ray_ids = self.find_ray_voxels_intersection(t, origins, dirs)
-
-            plane_xs = torch.arange(0, gsz[0], device=origins.device)
-            plane_ys = torch.arange(0, gsz[1], device=origins.device)
-            plane_zs = torch.arange(0, gsz[2], device=origins.device)
-
-            ts_x = (plane_xs[None, :] - origins[:, 0, None])/dirs[:, 0, None]
-            ts_y = (plane_ys[None, :] - origins[:, 1, None])/dirs[:, 1, None]
-            ts_z = (plane_zs[None, :] - origins[:, 2, None])/dirs[:, 2, None]
-
-            ts = torch.concat([ts_x, ts_y, ts_z], axis=-1)
-            samples = origins[:, None, :] + dirs[:, None, :] * ts[..., None]
-
-            valid_sample_mask = self.within_grid(samples)
-
-            ts = ts[valid_sample_mask]
-            samples = samples[valid_sample_mask]
-            ray_ids = torch.repeat_interleave(torch.arange(B, device=t.device), torch.count_nonzero(valid_sample_mask,dim=-1))
-
-
-            l = samples.long()
-            lx, ly, lz = l.unbind(-1) 
-            links000 = self.links[lx, ly, lz]
-            links001 = self.links[lx, ly, lz + 1]
-            links010 = self.links[lx, ly + 1, lz]
-            links011 = self.links[lx, ly + 1, lz + 1]
-            links100 = self.links[lx + 1, ly, lz]
-            links101 = self.links[lx + 1, ly, lz + 1]
-            links110 = self.links[lx + 1, ly + 1, lz]
-            links111 = self.links[lx + 1, ly + 1, lz + 1]
-
-            alpha000, rgb000, _ = self._fetch_links(links000)
-            alpha001, rgb001, _ = self._fetch_links(links001)
-            alpha010, rgb010, _ = self._fetch_links(links010)
-            alpha011, rgb011, _ = self._fetch_links(links011)
-            alpha100, rgb100, _ = self._fetch_links(links100)
-            alpha101, rgb101, _ = self._fetch_links(links101)
-            alpha110, rgb110, _ = self._fetch_links(links110)
-            alpha111, rgb111, _ = self._fetch_links(links111)
-
-            pos = samples - l
-
-            wa, wb = 1.0 - pos, pos
-            # c00 = alpha000 * wa[:, 2:] + alpha001 * wb[:, 2:]
-            # c01 = alpha010 * wa[:, 2:] + alpha011 * wb[:, 2:]
-            # c10 = alpha100 * wa[:, 2:] + alpha101 * wb[:, 2:]
-            # c11 = alpha110 * wa[:, 2:] + alpha111 * wb[:, 2:]
-            # c0 = c00 * wa[:, 1:2] + c01 * wb[:, 1:2]
-            # c1 = c10 * wa[:, 1:2] + c11 * wb[:, 1:2]
-            # alpha = c0 * wa[:, :1] + c1 * wb[:, :1]
-            # alpha = torch.sigmoid(alpha)
-            alpha = torch.sigmoid(alpha000)
-
-            c00 = rgb000 * wa[:, 2:] + rgb001 * wb[:, 2:]
-            c01 = rgb010 * wa[:, 2:] + rgb011 * wb[:, 2:]
-            c10 = rgb100 * wa[:, 2:] + rgb101 * wb[:, 2:]
-            c11 = rgb110 * wa[:, 2:] + rgb111 * wb[:, 2:]
-            c0 = c00 * wa[:, 1:2] + c01 * wb[:, 1:2]
-            c1 = c10 * wa[:, 1:2] + c11 * wb[:, 1:2]
-            rgb = c0 * wa[:, :1] + c1 * wb[:, :1]
-
-
-            # split and pad samples into 2d arrays
-            # where first dim is B
-            ray_bin = torch.zeros((B), device=origins.device)
-            bincount = torch.bincount(ray_ids)
-            ray_bin[:bincount.shape[0]] = bincount
-            MS = ray_bin.max().long().item() # maximum number of samples per-ray 
-
-            B_rgb = torch.zeros((B, MS, 3), device=origins.device)
-            B_alpha = torch.zeros((B, MS), device=origins.device)
-
-            B_to_sample_mask = (torch.arange(MS)[None, :].repeat([B, 1]).to(origins.device) < ray_bin[:, None])
-
-            B_alpha[B_to_sample_mask] = alpha[:, 0].to(B_alpha.dtype) # [N_samples]
-
-            rgb_sh = rgb.reshape(-1, 3, self.basis_dim)
-            B_rgb[B_to_sample_mask,:] = torch.clamp_min(
-                torch.sum(sh_mult[ray_ids, None, :] * rgb_sh, dim=-1).to(B_rgb.dtype) + 0.5,
-                0.0,
-            ) # [N_samples, 3]
-
-            assert not torch.isnan(B_alpha).any(), 'NaN detcted in alpha!'
-
-            B_weights = B_alpha * torch.cumprod(
-                torch.cat([torch.ones((B_alpha.shape[0], 1)).to(B_alpha.device), torch.clamp(1.-B_alpha, 1e-7, 1-1e-7)], -1), -1
-                )[:, :-1] # [B, MS, 3]
-            
-            out_rgb = torch.sum(B_weights[...,None] * B_rgb, -2)  # [B, 3]
-
-            B_ts = torch.zeros((B, MS), device=origins.device)
-            B_ts[B_to_sample_mask] = ts.to(B_ts.dtype) # [N_samples]
-
-            out_depth = torch.sum(B_weights[...,None] * B_ts[...,None], -2) # [B, 1]
-
-            # Add background color
-            if self.opt.background_brightness:
-                out_rgb += (1-torch.sum(B_weights, -1))[:, None] * self.opt.background_brightness
-
-            out = {
-                'rgb': out_rgb,
-                'depth': out_depth,
-                'extra_loss': {},
-                'log_stats': {},
-            }
-
-            # # compute density lap loss
-            # if alpha.numel() == 0:
-            #     density_lap_loss = 0.
-            # else:
-            #     p_lap = torch.exp(-alpha) + torch.exp(-(1-alpha))
-            #     density_lap_loss = torch.mean(-torch.log(p_lap))
-            #     # make positive
-            #     density_lap_loss = density_lap_loss + torch.log(torch.exp(torch.tensor(-1, device=p_lap.device)) + 1)
-            # out['extra_loss']['density_lap_loss'] = density_lap_loss
-            # out['log_stats']['density_lap_loss'] = density_lap_loss
-
-            return out
-
-
-
-        if no_surface:
-            # take samples at fixed step intervals
-            valid_mask = tmax < t
-            MAX_N_SAMPLES = ((tmax - t) / self.opt.step_size).long().max()
-
-            ts = torch.arange(1, MAX_N_SAMPLES, device=t.device)[None, :].repeat(B,1)
-            ts = ts * self.opt.step_size + t[:,None]
-            valid_ts_mask = ts < tmax[:,None]
-
-            ts = ts[valid_ts_mask]
-            ray_ids = torch.repeat_interleave(torch.arange(B, device=t.device), torch.count_nonzero(valid_ts_mask,dim=-1))
-
-            # Interpolation
-            pos = origins[ray_ids] + ts[:, None] * dirs[ray_ids]
-            pos = pos.clamp_min_(0.0)
-            pos[:, 0] = torch.clamp_max(pos[:, 0], gsz_cu[0] - 1)
-            pos[:, 1] = torch.clamp_max(pos[:, 1], gsz_cu[1] - 1)
-            pos[:, 2] = torch.clamp_max(pos[:, 2], gsz_cu[2] - 1)
-
-            l = pos.to(torch.long)
-            l.clamp_min_(0)
-            l[:, 0] = torch.clamp_max(l[:, 0], gsz_cu[0].long() - 2)
-            l[:, 1] = torch.clamp_max(l[:, 1], gsz_cu[1].long() - 2)
-            l[:, 2] = torch.clamp_max(l[:, 2], gsz_cu[2].long() - 2)
-            pos -= l
-
-            lx, ly, lz = l.unbind(-1)
-            links000 = self.links[lx, ly, lz]
-            links001 = self.links[lx, ly, lz + 1]
-            links010 = self.links[lx, ly + 1, lz]
-            links011 = self.links[lx, ly + 1, lz + 1]
-            links100 = self.links[lx + 1, ly, lz]
-            links101 = self.links[lx + 1, ly, lz + 1]
-            links110 = self.links[lx + 1, ly + 1, lz]
-            links111 = self.links[lx + 1, ly + 1, lz + 1]
-
-            sigma000, rgb000, _ = self._fetch_links(links000)
-            sigma001, rgb001, _ = self._fetch_links(links001)
-            sigma010, rgb010, _ = self._fetch_links(links010)
-            sigma011, rgb011, _ = self._fetch_links(links011)
-            sigma100, rgb100, _ = self._fetch_links(links100)
-            sigma101, rgb101, _ = self._fetch_links(links101)
-            sigma110, rgb110, _ = self._fetch_links(links110)
-            sigma111, rgb111, _ = self._fetch_links(links111)
-
-            wa, wb = 1.0 - pos, pos
-            c00 = sigma000 * wa[:, 2:] + sigma001 * wb[:, 2:]
-            c01 = sigma010 * wa[:, 2:] + sigma011 * wb[:, 2:]
-            c10 = sigma100 * wa[:, 2:] + sigma101 * wb[:, 2:]
-            c11 = sigma110 * wa[:, 2:] + sigma111 * wb[:, 2:]
-            c0 = c00 * wa[:, 1:2] + c01 * wb[:, 1:2]
-            c1 = c10 * wa[:, 1:2] + c11 * wb[:, 1:2]
-            sigma = c0 * wa[:, :1] + c1 * wb[:, :1]
-            sigma = torch.relu(sigma)
-
-            c00 = rgb000 * wa[:, 2:] + rgb001 * wb[:, 2:]
-            c01 = rgb010 * wa[:, 2:] + rgb011 * wb[:, 2:]
-            c10 = rgb100 * wa[:, 2:] + rgb101 * wb[:, 2:]
-            c11 = rgb110 * wa[:, 2:] + rgb111 * wb[:, 2:]
-            c0 = c00 * wa[:, 1:2] + c01 * wb[:, 1:2]
-            c1 = c10 * wa[:, 1:2] + c11 * wb[:, 1:2]
-            rgb = c0 * wa[:, :1] + c1 * wb[:, :1]
-
-            # split and pad samples into 2d arrays
-            # where first dim is B
-            ray_bin = torch.zeros((B), device=origins.device)
-            bincount = torch.bincount(ray_ids)
-            ray_bin[:bincount.shape[0]] = bincount
-            MS = ray_bin.max().long().item() # maximum number of samples per-ray 
-
-            B_rgb = torch.zeros((B, MS, 3), device=origins.device)
-            B_alpha = torch.zeros((B, MS), device=origins.device)
-
-            B_to_sample_mask = (torch.arange(MS)[None, :].repeat([B, 1]).to(origins.device) < ray_bin[:, None])
-
-            d = torch.tensor([1.,1.,1.])
-            d = d / torch.norm(d)
-            delta_scale = 1./(d * self._scaling * self._grid_size()).norm()
-
-            alpha = 1 - torch.exp(-sigma[:,0] * delta_scale * self.opt.step_size).to(B_rgb.dtype) # [N_samples]
-            B_alpha[B_to_sample_mask] = alpha # [N_samples]
-
-            rgb_sh = rgb.reshape(-1, 3, self.basis_dim)
-            B_rgb[B_to_sample_mask,:] = torch.clamp_min(
-                torch.sum(sh_mult[ray_ids, None, :] * rgb_sh, dim=-1).to(B_rgb.dtype) + 0.5,
-                0.0,
-            ) # [N_samples, 3]
-
-            assert not torch.isnan(B_alpha).any(), 'NaN detcted in alpha!'
-
-            B_weights = B_alpha * torch.cumprod(
-                torch.cat([torch.ones((B_alpha.shape[0], 1)).to(B_alpha.device), torch.clamp(1.-B_alpha, 1e-7, 1-1e-7)], -1), -1
-                )[:, :-1] # [B, MS, 3]
-            
-            out_rgb = torch.sum(B_weights[...,None] * B_rgb, -2)  # [B, 3]
-
-            B_ts = torch.zeros((B, MS), device=origins.device)
-            B_ts[B_to_sample_mask] = ts.to(B_ts.dtype) # [N_samples]
-
-            out_depth = torch.sum(B_weights[...,None] * B_ts[...,None], -2) # [B, 1]
-
-            # Add background color
-            if self.opt.background_brightness:
-                out_rgb += (1-torch.sum(B_weights, -1))[:, None] * self.opt.background_brightness
-
-            out = {
-                'rgb': out_rgb,
-                'depth': out_depth,
-                'extra_loss': {},
-                'log_stats': {},
-            }
-
-            # compute density lap loss
-            if alpha.numel() == 0:
-                no_surf_init_density_lap_loss = 0.
-            else:
-                p_lap = torch.exp(-alpha) + torch.exp(-(1-alpha))
-                no_surf_init_density_lap_loss = torch.mean(-torch.log(p_lap))
-                # make positive
-                no_surf_init_density_lap_loss = no_surf_init_density_lap_loss + torch.log(torch.exp(torch.tensor(-1, device=p_lap.device)) + 1)
-            out['extra_loss']['no_surf_init_density_lap_loss'] = no_surf_init_density_lap_loss
-            out['log_stats']['no_surf_init_density_lap_loss'] = no_surf_init_density_lap_loss
-
-            return out
-
-
         ########### Find Ray-Voxel Intersections ###########
         # with utils.Timing("Ray-voxel intersection finding"):
         l, ray_ids = self.find_ray_voxels_intersection(t, origins, dirs)
@@ -1953,18 +1701,7 @@ class SparseGrid(nn.Module):
 
         ########### Find Ray-Surface Intersections ###########
         # with utils.Timing("Cubic root finding"):
-        if self.surface_type in [SURFACE_TYPE_SDF, SURFACE_TYPE_UDF, SURFACE_TYPE_UDF_ALPHA, SURFACE_TYPE_UDF_FAKE_SAMPLE]:
-            if self.surface_type in [SURFACE_TYPE_UDF, SURFACE_TYPE_UDF_ALPHA, SURFACE_TYPE_UDF_FAKE_SAMPLE]:
-                fn = torch.nn.Softplus()
-                # fn = torch.relu
-                surface000 = fn(surface000)
-                surface001 = fn(surface001)
-                surface010 = fn(surface010)
-                surface011 = fn(surface011)
-                surface100 = fn(surface100)
-                surface101 = fn(surface101)
-                surface110 = fn(surface110)
-                surface111 = fn(surface111)
+        if self.surface_type in [SURFACE_TYPE_SDF]:
 
             surface_values = torch.stack(
                     [surface000, surface001, surface010, surface011, surface100, surface101, surface110, surface111],
@@ -2010,7 +1747,6 @@ class SparseGrid(nn.Module):
             f0 = c0*(1-ox+lx) + c1*(ox-lx)
             # f3 * t^3 + f2 * t^2 + f1 * t + f0 = level_set gives the surface
 
-            # if self.surface_type in [SURFACE_TYPE_UDF, SURFACE_TYPE_UDF_ALPHA, SURFACE_TYPE_UDF_FAKE_SAMPLE]:
             # find the list of possible level sets
             lv_set_mask = (self.level_set_data >= surface_values.min(axis=-1).values) & \
                 (self.level_set_data <= surface_values.max(axis=-1).values) # [VEV, N_level_sets]
@@ -2018,14 +1754,6 @@ class SparseGrid(nn.Module):
             if self.opt.surf_fake_sample and not self.opt.limited_fake_sample:
                 # do not filter out voxels by surface scalars if we render fake samples
                 lv_set_mask = torch.ones_like(lv_set_mask).bool()
-
-            if self.surface_type in [SURFACE_TYPE_UDF_FAKE_SAMPLE]:
-                # if no valid lv set in range, use closest one
-                no_lv_mask = ~lv_set_mask.any(axis=-1)
-                if torch.count_nonzero(no_lv_mask) > 0:
-                    udf_avgs = torch.mean(surface_values[no_lv_mask], axis=-1)
-                    dists = torch.abs(self.level_set_data[None, :] - udf_avgs)
-                    lv_set_mask[no_lv_mask, dists.argmin(axis=-1)] = True # TODO check if this is ok!
 
             lv_sets = self.level_set_data[None, :].repeat(lv_set_mask.shape[0], 1)[lv_set_mask]
             lv_set_ids = torch.arange(self.level_set_data.shape[0], device=surface_values.device)[None, :].repeat(lv_set_mask.shape[0], 1)[lv_set_mask]
@@ -2055,119 +1783,87 @@ class SparseGrid(nn.Module):
             # np.save('fs.npy', fs.cpu().detach().numpy())
 
             # solve cubic equations
-            numerical_solution = False
-            if numerical_solution:
-                # TODO use Aesara instead https://aesara.readthedocs.io/en/latest/
-                print('using slow numerical solver for cubic functions!')
-                print('no gradient is enabled at the moment!')
-                ts = torch.ones([f0.numel(), 3]).to(device=dirs.device) * -1
-                for i in range(f0.shape[0]):
-                    x = Symbol('x')
-                    a_np = f3.cpu().detach().numpy() 
-                    b_np = f2.cpu().detach().numpy()
-                    c_np = f1.cpu().detach().numpy()
-                    d_np = f0.cpu().detach().numpy()
-                    solutions = sympy.solveset(a_np[i] * x**3 + b_np[i] * x**2 + c_np[i] * x + d_np[i], x, domain=sympy.S.Reals)
-                    solutions = torch.tensor(list(solutions),dtype=torch.float32).to(device=dirs.device)
-                    ts[i, :solutions.shape[0]] = solutions
-            else:
+            # analyical solution for f0 + _t*f1 + (_t**2)*f2 + (_t**3)*f3 = 0
 
-                # analyical solution for f0 + _t*f1 + (_t**2)*f2 + (_t**3)*f3 = 0
-                # https://github.com/shril/CubicEquationSolver/blob/master/CubicEquationSolver.py
+            atol = 1e-10
+            no_solution_mask = torch.isclose(f3, torch.zeros_like(f3), atol=atol) \
+                    & torch.isclose(f2, torch.zeros_like(f2), atol=atol) \
+                    & torch.isclose(f1, torch.zeros_like(f1), atol=atol)
+            linear_mask = torch.isclose(f3, torch.zeros_like(f3), atol=atol) \
+                    & torch.isclose(f2, torch.zeros_like(f2), atol=atol) \
+                    & (~no_solution_mask)
+            quad_mask = torch.isclose(f3, torch.zeros_like(f3), atol=atol) \
+                    & (~linear_mask) & (~no_solution_mask)
+            cubic_mask = (~quad_mask) & (~linear_mask) & (~no_solution_mask)
 
 
-                atol = 1e-10
-                no_solution_mask = torch.isclose(f3, torch.zeros_like(f3), atol=atol) \
-                        & torch.isclose(f2, torch.zeros_like(f2), atol=atol) \
-                        & torch.isclose(f1, torch.zeros_like(f1), atol=atol)
-                linear_mask = torch.isclose(f3, torch.zeros_like(f3), atol=atol) \
-                        & torch.isclose(f2, torch.zeros_like(f2), atol=atol) \
-                        & (~no_solution_mask)
-                quad_mask = torch.isclose(f3, torch.zeros_like(f3), atol=atol) \
-                        & (~linear_mask) & (~no_solution_mask)
-                cubic_mask = (~quad_mask) & (~linear_mask) & (~no_solution_mask)
+            ##### Linear Roots #####
+            if ts[linear_mask].numel() > 0:
+                ts[linear_mask, 0] = (-f0[linear_mask] * 1.0) / f1[linear_mask]
+
+            ##### Quadratic Roots #####
+            if ts[quad_mask].numel() > 0:
+                _b, _c, _d = f2[quad_mask], f1[quad_mask], f0[quad_mask]
+                D = _c**2 - 4.0 * _b * _d
+
+                # two real roots
+                D_mask = D > 0 
+                sqrt_D = torch.sqrt(D[D_mask])
+                ids = torch.arange(quad_mask.shape[0])[quad_mask][D_mask]
+                t0 = (-_c[D_mask] - sqrt_D) / (2.0 * _b[D_mask])
+                t1 = (-_c[D_mask] + sqrt_D) / (2.0 * _b[D_mask])
+                ts[ids, 0] = torch.min(torch.stack([t0,t1]), axis=0).values
+                ts[ids, 1] = torch.max(torch.stack([t0,t1]), axis=0).values
+
+                # otherwise, has no real roots
+
+            ##### Cubic Roots #####
+
+            cubic_ids = torch.arange(ts.shape[0])[cubic_mask]
+
+            # normalize 
+            norm_term = f3[cubic_mask]
+            a = f3[cubic_mask] / norm_term
+            b = f2[cubic_mask] / norm_term
+            c = f1[cubic_mask] / norm_term
+            d = f0[cubic_mask] / norm_term
+
+            Q = ((b**2) - 3.*c) / 9.
+            R = (2.*(b**3) - 9.*b*c + 27.*d) /54.
+
+            # # all three roots are real and equal
+            # _mask1 = ((f == 0) & (g == 0) & (h == 0))
+            # ts[cubic_ids[_mask1], 0] = cond_cbrt(d[_mask1]/a[_mask1])
+
+            # all three roots are real 
+            _mask2 = (R)**2 < (Q)**3
+            _b, _Q, _R = b[_mask2], Q[_mask2], R[_mask2]
+
+            eps = 1e-10
+            theta = torch.acos(torch.clamp(_R / torch.sqrt((_Q)**3), -1+eps, 1-eps))
+            # theta = torch.acos((_R / torch.sqrt((_Q)**3)))
+            
+            ts[cubic_ids[_mask2], 0] = -2. * torch.sqrt(_Q) * torch.cos(theta/3.) - _b/3.
+            ts[cubic_ids[_mask2], 1] = -2. * torch.sqrt(_Q) * torch.cos((theta - 2.*torch.pi)/3.) - _b/3.
+            ts[cubic_ids[_mask2], 2] = -2. * torch.sqrt(_Q) * torch.cos((theta + 2.*torch.pi)/3.) - _b/3.
+
+            # only one root is real
+            _mask3 = ~_mask2
+            __b, __Q, __R = b[_mask3], Q[_mask3], R[_mask3]
+
+            A = -torch.sign(__R) * (torch.abs(__R) + torch.sqrt(torch.clamp_min((__R)**2 - (__Q)**3, 1e-8))) ** (1./3.)
+            # A = -torch.sign(__R) * (torch.abs(__R) + torch.sqrt(((__R)**2 - (__Q)**3))) ** (1./3.)
+            _B = __Q/A
+            _B[A== 0.] = 0.
+
+            ts[cubic_ids[_mask3], 0] = (A+_B) - __b/3.
 
 
-                ##### Linear Roots #####
-                if ts[linear_mask].numel() > 0:
-                    ts[linear_mask, 0] = (-f0[linear_mask] * 1.0) / f1[linear_mask]
+            assert not torch.isnan(ts).any(), 'NaN detcted in cubic roots'
+            assert torch.isfinite(ts).all(), 'Inf detcted in cubic roots'
 
-                ##### Quadratic Roots #####
-                if ts[quad_mask].numel() > 0:
-                    _b, _c, _d = f2[quad_mask], f1[quad_mask], f0[quad_mask]
-                    D = _c**2 - 4.0 * _b * _d
-
-                    # two real roots
-                    D_mask = D > 0 
-                    sqrt_D = torch.sqrt(D[D_mask])
-                    ids = torch.arange(quad_mask.shape[0])[quad_mask][D_mask]
-                    t0 = (-_c[D_mask] - sqrt_D) / (2.0 * _b[D_mask])
-                    t1 = (-_c[D_mask] + sqrt_D) / (2.0 * _b[D_mask])
-                    ts[ids, 0] = torch.min(torch.stack([t0,t1]), axis=0).values
-                    ts[ids, 1] = torch.max(torch.stack([t0,t1]), axis=0).values
-
-                    # otherwise, has no real roots
-
-                ##### Cubic Roots #####
-
-                cubic_ids = torch.arange(ts.shape[0])[cubic_mask]
-
-                # normalize 
-                norm_term = f3[cubic_mask]
-                a = f3[cubic_mask] / norm_term
-                b = f2[cubic_mask] / norm_term
-                c = f1[cubic_mask] / norm_term
-                d = f0[cubic_mask] / norm_term
-
-                def cond_cbrt(x, eps=1e-10):
-                    '''
-                    Compute cubic root of x based on sign
-                    '''
-                    ret = torch.zeros_like(x)
-                    ret[x >= 0] = torch.pow(torch.clamp_min_(x[x >= 0], eps), 1/3.)
-                    ret[x < 0] = torch.pow(torch.clamp_min_(-x[x < 0], eps), 1/3.) * -1
-                    return ret
-
-                Q = ((b**2) - 3.*c) / 9.
-                R = (2.*(b**3) - 9.*b*c + 27.*d) /54.
-
-                # # all three roots are real and equal
-                # _mask1 = ((f == 0) & (g == 0) & (h == 0))
-                # ts[cubic_ids[_mask1], 0] = cond_cbrt(d[_mask1]/a[_mask1])
-
-                # all three roots are real 
-                _mask2 = (R)**2 < (Q)**3
-                _b, _Q, _R = b[_mask2], Q[_mask2], R[_mask2]
-
-                eps = 1e-10
-                theta = torch.acos(torch.clamp(_R / torch.sqrt((_Q)**3), -1+eps, 1-eps))
-                # theta = torch.acos((_R / torch.sqrt((_Q)**3)))
-                
-                ts[cubic_ids[_mask2], 0] = -2. * torch.sqrt(_Q) * torch.cos(theta/3.) - _b/3.
-                ts[cubic_ids[_mask2], 1] = -2. * torch.sqrt(_Q) * torch.cos((theta - 2.*torch.pi)/3.) - _b/3.
-                ts[cubic_ids[_mask2], 2] = -2. * torch.sqrt(_Q) * torch.cos((theta + 2.*torch.pi)/3.) - _b/3.
-
-                # only one root is real
-                _mask3 = ~_mask2
-                __b, __Q, __R = b[_mask3], Q[_mask3], R[_mask3]
-
-                A = -torch.sign(__R) * (torch.abs(__R) + torch.sqrt(torch.clamp_min((__R)**2 - (__Q)**3, 1e-8))) ** (1./3.)
-                # A = -torch.sign(__R) * (torch.abs(__R) + torch.sqrt(((__R)**2 - (__Q)**3))) ** (1./3.)
-                _B = __Q/A
-                _B[A== 0.] = 0.
-
-                ts[cubic_ids[_mask3], 0] = (A+_B) - __b/3.
-
-
-                
-
-                assert not torch.isnan(ts).any(), 'NaN detcted in cubic roots'
-                assert torch.isfinite(ts).all(), 'Inf detcted in cubic roots'
-
-            # assert (((ts[:,0] <= ts[:,1]) | (ts[:,1]==-1.)) & ((ts[:,1] <= ts[:,2])| (ts[:,2]==-1.)) ).all()
 
             N_INTERSECT = ts.shape[1]
-            # ts = torch.sort(ts, dim=-1).values
             close_t = close_t[:, None].repeat(1, N_INTERSECT)
             samples = origins[ray_ids, None, :] + (ts[..., None] + close_t[..., None]) * dirs[ray_ids, None, :] # [VEV, N_INTERSECT, 3]
             ray_ids = ray_ids[:, None].repeat(1, N_INTERSECT)
@@ -2183,33 +1879,20 @@ class SparseGrid(nn.Module):
             # Note that scaling is not exactly correct when grid reso are not the same
             neg_roots_mask = (ts + close_t) < self.opt.near_clip * self._scaling.to(device=ts.device) * gsz_cu.mean()
 
-
-            if allow_outside:
-                invalid_sample_mask = ~self.within_grid(samples) | (torch.isnan(samples)).any(axis=-1)
-            else:
-                # remove all samples outside of the voxel
-                invalid_sample_mask = (samples < l[l_ids]).any(axis=-1) | (samples > l[l_ids]+1.).any(axis=-1) | (torch.isnan(samples)).any(axis=-1)
+            # remove all samples outside of the voxel
+            invalid_sample_mask = (samples < l[l_ids]).any(axis=-1) | (samples > l[l_ids]+1.).any(axis=-1) | (torch.isnan(samples)).any(axis=-1)
             
             valid_sample_mask = (~neg_roots_mask) & (~invalid_sample_mask)
             _real_sample_mask = valid_sample_mask.clone()
 
 
-            # if self.surface_type in [SURFACE_TYPE_UDF_FAKE_SAMPLE]:
             if self.opt.surf_fake_sample:
                 # mask of ray-voxel pair where no valid intersection exists
                 # where we take one fake sample at the mid of the ray passing through the voxel
-                
                 new_shape = [-1, N_INTERSECT*self.level_set_data.shape[0]]
                 fake_sample_mask = ~(valid_sample_mask.view(new_shape).any(axis=-1, keepdim=True)).repeat(1,new_shape[-1])
                 fake_sample_mask[:, 1:] = False
                 fake_sample_mask = fake_sample_mask.view(-1, N_INTERSECT)
-
-
-                # mlv_set_filter = torch.zeros_like(_fake_sample_mask).bool()[_fake_sample_mask]
-                # mlv_set_filter[torch.arange(0, mlv_set_filter.shape[0], self.level_set_data.shape[0])] = True
-                # fake_sample_mask = _fake_sample_mask.clone()
-                # fake_sample_mask[_fake_sample_mask] &= mlv_set_filter
-
 
                 # find two intersections between ray and voxel surfaces
                 _l = l[l_ids[fake_sample_mask]]
@@ -2251,42 +1934,6 @@ class SparseGrid(nn.Module):
             # ts = torch.concat([ts_raw[:0].detach().clone(), ts_raw[0:1], ts_raw[1:].detach().clone()], dim=-1)
             ts = ts_raw
             samples = origins[ray_ids, :] + (ts[..., None] + close_t[...,None]) * dirs[ray_ids, :] # [VEV * N_INTERSECT, 3]
-        
-        elif self.surface_type == SURFACE_TYPE_PLANE:
-            # raise NotImplementedError
-            # plane: ax + by + cz + d = 0
-            a, b, c, d = torch.mean(torch.stack(
-                [surface000, surface001, surface010, surface011, surface100, surface101, surface110, surface111]
-                ), axis=0).to(dtype).unbind(-1)
-
-            # a, b, c, d = plane000.to(dtype).unbind(-1)
-
-            # thresholding to force the plane to stay within its voxel
-            # abs(torch.sum((l + 0.5) * torch.stack([a,b,c]).T, axis=-1) + d) <= sqrt(3 * (0.5 ** 2))
-            th = 0.3
-            xyz_term = torch.sum((l + 0.5) * torch.stack([a,b,c]).T, axis=-1)
-            d = torch.clamp(d, -th - xyz_term, th - xyz_term)
-
-            ox, oy, oz = origins[ray_ids].to(dtype).unbind(-1)
-            vx, vy, vz = dirs[ray_ids].to(dtype).unbind(-1)
-
-            ts = -(a*ox + b*oy + c*oz + d) / (a*vx+b*vy+c*vz)
-            samples = origins[ray_ids] + ts[..., None] * dirs[ray_ids] # [VEV, 3]
-
-            # filter out roots with negative t
-            neg_roots_mask = ts < 0
-
-            if allow_outside:
-                # invalid_sample_mask = ~self.within_grid(samples) | (torch.isnan(samples)).any(axis=-1)
-                invalid_sample_mask = (torch.isnan(samples)).any(axis=-1)
-            else:
-                # remove all samples outside of the voxel
-                invalid_sample_mask = (samples < l).any(axis=-1) | (samples > l+1).any(axis=-1) | (torch.isnan(samples)).any(axis=-1)
-
-            valid_sample_mask = (~neg_roots_mask) & (~invalid_sample_mask)
-            ts = ts[valid_sample_mask]
-            ray_ids = ray_ids[valid_sample_mask]
-            samples = samples[valid_sample_mask, :]
 
         else:
             raise NotImplementedError(f'Gird surface type {self.surface_type} is not supported for grad check rendering')
@@ -2308,28 +1955,21 @@ class SparseGrid(nn.Module):
  
         # interpolate opacity
         wa, wb = 1. - (samples - l), (samples - l)
-        # wa, wb = 1. - (samples.detach().clone() - l), (samples.detach().clone() - l)
         wa, wb = wa / (wa + wb), wb / (wa + wb)
-        if self.surface_type == SURFACE_TYPE_UDF_ALPHA:
-            alpha = self.density_data[lv_set_ids]
-        else:
-            c00 = alpha000[l_ids] * wa[:, 2:] + alpha001[l_ids] * wb[:, 2:]
-            c01 = alpha010[l_ids] * wa[:, 2:] + alpha011[l_ids] * wb[:, 2:]
-            c10 = alpha100[l_ids] * wa[:, 2:] + alpha101[l_ids] * wb[:, 2:]
-            c11 = alpha110[l_ids] * wa[:, 2:] + alpha111[l_ids] * wb[:, 2:]
-            c0 = c00 * wa[:, 1:2] + c01 * wb[:, 1:2]
-            c1 = c10 * wa[:, 1:2] + c11 * wb[:, 1:2]
-            alpha_raw = c0 * wa[:, :1] + c1 * wb[:, :1]
+        c00 = alpha000[l_ids] * wa[:, 2:] + alpha001[l_ids] * wb[:, 2:]
+        c01 = alpha010[l_ids] * wa[:, 2:] + alpha011[l_ids] * wb[:, 2:]
+        c10 = alpha100[l_ids] * wa[:, 2:] + alpha101[l_ids] * wb[:, 2:]
+        c11 = alpha110[l_ids] * wa[:, 2:] + alpha111[l_ids] * wb[:, 2:]
+        c0 = c00 * wa[:, 1:2] + c01 * wb[:, 1:2]
+        c1 = c10 * wa[:, 1:2] + c11 * wb[:, 1:2]
+        alpha_raw = c0 * wa[:, :1] + c1 * wb[:, :1]
+
         # post sigmoid activation
         if self.opt.alpha_activation_type == SIGMOID_FN:
             alpha = torch.sigmoid(alpha_raw)
         else:
             alpha = 1 - torch.exp(-torch.relu(alpha_raw))
-        # alpha = alpha.detach().clone()
-        # alpha.requires_grad = True
 
-
-        # if self.surface_type == SURFACE_TYPE_UDF_FAKE_SAMPLE:
         if self.opt.surf_fake_sample:
             # use naive biased formula to get alpha for fake samples
             lv_sets = self.level_set_data[lv_set_ids[fake_sample_ids]]
@@ -2426,11 +2066,6 @@ class SparseGrid(nn.Module):
 
         B_weights = B_alpha * B_T # [B, MS, 3]
 
-        # B_weights_raw = B_weights
-        # B_weights_raw.retain_grad()
-        # start, end = 1, 2
-        # B_weights = torch.concat([B_weights_raw[:, :start].detach().clone(), B_weights_raw[:, start:end], B_weights_raw[:, end:].detach().clone()], dim=-1)
-        
         
         out_rgb = torch.sum(B_weights[...,None] * B_rgb, -2)  # [B, 3]
 
@@ -2455,10 +2090,6 @@ class SparseGrid(nn.Module):
 
         # computer dist loss (mipnerf 360)
         if B_weights.numel() > 0:
-            # B_ts = torch.zeros((B, MS), device=origins.device)
-            # B_ts[B_to_sample_mask] = (ts + close_t).to(B_ts.dtype) # [N_samples]
-            # B_nts = torch.clamp_min(B_ts - B_ts[:,:1], 0.) /  \
-            #     torch.clamp_min(B_ts.max(axis=-1, keepdim=True).values - B_ts[:,:1], 1e-8)
             B_nts = B_ts
             
             l_dist = (B_weights[:, :, None] * B_weights[:, None, :]) * \
@@ -2467,7 +2098,6 @@ class SparseGrid(nn.Module):
             l_dist = (B_alpha[:, :, None] * B_alpha[:, None, :]) * \
                 torch.abs(B_nts[:, :, None].repeat(1,1,MS) - B_nts[:, None, :].repeat(1,MS,1))
             
-            # l_dist = l_dist.sum(axis=-1) + B_weights ** 2. * (B_nts - torch.cat((torch.zeros_like(B_nts[:, :1]), B_nts[:, :-1]), axis=-1)) / 3.
             l_dist = l_dist.sum(axis=-1).sum(axis=-1)
             
             l_dist = l_dist.mean() / 2.
@@ -2479,7 +2109,6 @@ class SparseGrid(nn.Module):
         # computer entropy loss (info nerf)
         if B_weights.numel() > 0:
             na = B_weights / torch.clamp_min(B_weights.sum(axis=-1, keepdim=True), 1e-8)
-            na = B_weights
             l_entropy = torch.where(B_weights > 0., -na * torch.log(torch.clamp_min(na, 1e-8)), torch.tensor(0., dtype=torch.float, device='cuda'))
 
             # na = B_alpha / torch.clamp_min(B_alpha.sum(axis=-1, keepdim=True), 1e-8)
@@ -2548,7 +2177,8 @@ class SparseGrid(nn.Module):
             s = c0 * wa[:, :1] + c1 * wb[:, :1]
 
             real_sample_mask = torch.ones_like(s).bool()
-            real_sample_mask[fake_sample_ids, :] = False
+            if self.opt.surf_fake_sample:
+                real_sample_mask[fake_sample_ids, :] = False
 
             l_ss = torch.where((alpha < 0.1) & (real_sample_mask), s, 0.).sum()
 
@@ -2591,234 +2221,29 @@ class SparseGrid(nn.Module):
         out['log_stats']['l_inward_norm'] = l_inward_norm
 
         
-        if reg:
-            if self.surface_type in [SURFACE_TYPE_UDF, SURFACE_TYPE_UDF_ALPHA, SURFACE_TYPE_UDF_FAKE_SAMPLE]:
-                out['log_stats']['m_lv_sets'] = M_LV
+        # if B_alpha.numel() == 0:
+        #     out['intersections'] = torch.ones((0, 3), device=origins.device)
+        #     out['intersect_alphas'] = torch.ones((0), device=origins.device)
+        # else:
+        #     B_samples = torch.ones((B, MS, 3), device=origins.device) * -1.
+        #     B_samples[B_to_sample_mask] = (samples).to(B_samples.dtype)
+        #     sample_mask = B_alpha > intersect_th
+        #     B_samples[~sample_mask, :] = -1.
+        #     # ids = torch.argmax(sample_mask.long(), dim=-1)
+        #     # intersects = B_samples[torch.arange(B_samples.shape[0]), ids]
+        #     # intersects = intersects[sample_mask.any(axis=-1)]
+        #     intersects = B_samples[sample_mask, :]
+        #     # intersect_alphas = B_weights[sample_mask]
+        #     intersect_alphas = B_alpha[sample_mask]
+        #     out['intersections'] = self.grid2world(intersects)
+        #     out['intersect_alphas'] = intersect_alphas
 
-                # caluclate udf_var_loss
-                # this loss is to reduce variance in UDF values in the same voxel
-                N_lv_sets = torch.count_nonzero(lv_set_mask, dim=-1)
-                if N_lv_sets.numel() == 0:
-                    udf_var_loss = 0.
-                else:
-                    udf_vars = torch.var(surface_values,dim=-1)[:,0]
-                    udf_var_loss = torch.mean(torch.clamp_min((N_lv_sets - 1), 0.) * udf_vars)
-                out['extra_loss']['udf_var_loss'] = udf_var_loss
-                out['log_stats']['udf_var_loss'] = udf_var_loss
-
-            # compute density lap loss
-            if alpha.numel() == 0:
-                density_lap_loss = 0.
-            else:
-                p_lap = torch.exp(-alpha) + torch.exp(-(1-alpha))
-                density_lap_loss = torch.mean(-torch.log(p_lap))
-                # make positive
-                density_lap_loss = density_lap_loss + torch.log(torch.exp(torch.tensor(-1, device=p_lap.device)) + 1)
-            out['extra_loss']['density_lap_loss'] = density_lap_loss
-            out['log_stats']['density_lap_loss'] = density_lap_loss
-
-            # compute normal loss
-            # note that this should be replaced by a special form of TV loss really...
-            if alpha.numel() == 0:
-                normal_loss = 0.
-            else:
-                x,y,z = (l).long().unbind(-1)
-                x,y,z = torch.clamp(x.long(), 0, self.links.shape[0]-3), \
-                        torch.clamp(y.long(), 0, self.links.shape[1]-3), \
-                        torch.clamp(z.long(), 0, self.links.shape[2]-3)
-
-
-                coords = torch.tensor([
-                    [0,0,0],
-                    [0,0,1],
-                    [0,1,0],
-                    [0,1,1],
-                    [1,0,0],
-                    [1,0,1],
-                    [1,1,0],
-                    [1,1,1],
-
-                    [0,0,2],
-                    [0,1,2],
-                    [1,0,2],
-                    [1,1,2],
-
-                    [0,2,0],
-                    [0,2,1],
-                    [1,2,0],
-                    [1,2,1],
-
-                    [2,0,0],
-                    [2,0,1],
-                    [2,1,0],
-                    [2,1,1],
-                ], dtype=torch.long, device=l.device)
-
-                links=torch.zeros([3,3,3,l.shape[0]], dtype=torch.long, device=l.device)
-                alphas=torch.zeros([3,3,3,l.shape[0], 1], dtype=self.density_data.dtype, device=l.device)
-                surfaces=torch.zeros([3,3,3,l.shape[0], 1], dtype=self.surface_data.dtype, device=l.device)
-
-                for i in range(coords.shape[0]):
-                    links[coords[i,0], coords[i,1], coords[i,2]] = self.links[x+coords[i,0], y+coords[i,1], z+coords[i,2]]
-                    alphas[coords[i,0], coords[i,1], coords[i,2]], _ , \
-                        surfaces[coords[i,0], coords[i,1], coords[i,2]] = self._fetch_links(self.links[x+coords[i,0], y+coords[i,1], z+coords[i,2]])
-
-                def find_normal(norm_xyz):
-                    x,y,z = norm_xyz.unbind(-1)
-
-                    dx = ((surfaces[x+1,y,z]+surfaces[x+1,y,z+1]+surfaces[x+1,y+1,z]+surfaces[x+1,y+1,z+1]) - \
-                        (surfaces[x,y,z]+surfaces[x,y,z+1]+surfaces[x,y+1,z]+surfaces[x,y+1,z+1])) /4
-                    dy = ((surfaces[x,y+1,z]+surfaces[x,y+1,z+1]+surfaces[x+1,y+1,z]+surfaces[x+1,y+1,z+1]) - \
-                        (surfaces[x,y,z]+surfaces[x,y,z+1]+surfaces[x+1,y,z]+surfaces[x+1,y,z+1]))/4
-                    dz = ((surfaces[x,y,z+1]+surfaces[x,y+1,z+1]+surfaces[x+1,y,z+1]+surfaces[x+1,y+1,z+1]) - \
-                        (surfaces[x,y,z]+surfaces[x,y+1,z]+surfaces[x+1,y,z]+surfaces[x+1,y+1,z]))/4
-
-                    normals = torch.stack([dx, dy, dz], dim=-1)
-                    normals = normals / torch.clamp(torch.norm(normals, dim=-1, keepdim=True), 1e-10)
-
-                    # check if there is non-exist vertex
-                    coords = torch.tensor([
-                        [0,0,0],
-                        [0,0,1],
-                        [0,1,0],
-                        [0,1,1],
-                        [1,0,0],
-                        [1,0,1],
-                        [1,1,0],
-                        [1,1,1],
-                        ], dtype=torch.long, device=l.device)
-                    ver_xyzs = norm_xyz[None, :] + coords
-                    valid_mask = torch.ones(links.shape[-1], device=links.device).bool()
-                    for i in range(ver_xyzs.shape[0]):
-                        valid_mask = (valid_mask) & (links[ver_xyzs[i,0], ver_xyzs[i,1], ver_xyzs[i,2]] >= 0)
-
-                    alpha_v = [alphas[ver_xyzs[i,0], ver_xyzs[i,1], ver_xyzs[i,2]] for i in range(ver_xyzs.shape[0])]
-                    alpha_v = torch.concat(alpha_v, axis=-1).mean(dim=-1)
-
-                    return normals, valid_mask, torch.sigmoid(alpha_v.detach().clone())
-
-                # find normals
-                norm_xyzs = torch.tensor([[0,0,0], [0,0,1], [0,1,0], [1,0,0]], dtype=torch.long, device=l.device)
-                norm000, mask000, alpha_v000 = find_normal(norm_xyzs[0])
-                norm001, mask001, alpha_v001 = find_normal(norm_xyzs[1])
-                norm010, mask010, alpha_v010 = find_normal(norm_xyzs[2])
-                norm100, mask100, alpha_v100 = find_normal(norm_xyzs[3])
-
-
-                # check connectivity of surfaces
-                face001 = torch.concat([surfaces[0,0,1], surfaces[0,1,1], surfaces[1,0,1], surfaces[1,1,1]], axis=-1)
-                face010 = torch.concat([surfaces[0,1,0], surfaces[0,1,1], surfaces[1,1,0], surfaces[1,1,1]], axis=-1)
-                face100 = torch.concat([surfaces[1,0,0], surfaces[1,0,1], surfaces[1,1,0], surfaces[1,1,1]], axis=-1)
-                con001 = torch.count_nonzero(
-                    (self.level_set_data[None, :] >= face001.min(axis=-1, keepdim=True).values) & \
-                    (self.level_set_data[None, :] <= face001.max(axis=-1, keepdim=True).values),
-                    axis=-1
-                    ) > 0
-                con010 = torch.count_nonzero(
-                    (self.level_set_data[None, :] >= face010.min(axis=-1, keepdim=True).values) & \
-                    (self.level_set_data[None, :] <= face010.max(axis=-1, keepdim=True).values),
-                    axis=-1
-                    ) > 0
-                con100 = torch.count_nonzero(
-                    (self.level_set_data[None, :] >= face100.min(axis=-1, keepdim=True).values) & \
-                    (self.level_set_data[None, :] <= face100.max(axis=-1, keepdim=True).values),
-                    axis=-1
-                    ) > 0
-
-                norm_dz = torch.norm(norm001 - norm000, dim=-1)
-                norm_dy = torch.norm(norm010 - norm000, dim=-1)
-                norm_dx = torch.norm(norm100 - norm000, dim=-1)
-                # filter out gradients on non-exist voxel or non-connected surfaces
-                norm_dz[(~mask001)|(~mask000)|(~con001)] = 0.
-                norm_dy[(~mask010)|(~mask000)|(~con010)] = 0.
-                norm_dx[(~mask100)|(~mask000)|(~con100)] = 0.
-
-                if alpha_weighted_norm_loss:
-                    # use alpha value to re-weight the normal loss
-                    norm_dz = norm_dz * alpha_v000[:, None] * alpha_v001[:, None]
-                    norm_dy = norm_dy * alpha_v000[:, None] * alpha_v010[:, None]
-                    norm_dx = norm_dx * alpha_v100[:, None] * alpha_v100[:, None]
-
-                normal_loss = torch.mean(torch.concat([norm_dx,norm_dy,norm_dz],axis=-1))
-
-            out['extra_loss']['normal_loss'] = normal_loss
-            out['log_stats']['normal_loss'] = normal_loss
-
-        if B_alpha.numel() == 0:
-            out['intersections'] = torch.ones((0, 3), device=origins.device)
-            out['intersect_alphas'] = torch.ones((0), device=origins.device)
-        else:
-            B_samples = torch.ones((B, MS, 3), device=origins.device) * -1.
-            B_samples[B_to_sample_mask] = (samples).to(B_samples.dtype)
-            sample_mask = B_alpha > intersect_th
-            B_samples[~sample_mask, :] = -1.
-            # ids = torch.argmax(sample_mask.long(), dim=-1)
-            # intersects = B_samples[torch.arange(B_samples.shape[0]), ids]
-            # intersects = intersects[sample_mask.any(axis=-1)]
-            intersects = B_samples[sample_mask, :]
-            # intersect_alphas = B_weights[sample_mask]
-            intersect_alphas = B_alpha[sample_mask]
-            out['intersections'] = self.grid2world(intersects)
-            out['intersect_alphas'] = intersect_alphas
-
-        # run_backward = True
 
         if run_backward:
-            alpha.retain_grad()
-            alpha_raw.retain_grad()
-            alpha000.retain_grad()
-            B_T.retain_grad()
-            B_weights.retain_grad()
-            samples.retain_grad()
-            # B_rgb.retain_grad()
-            # rgb.retain_grad()
-            rgb_raw.retain_grad()
-            ts.retain_grad()
-            ts_raw.retain_grad()
-            out['rgb'].retain_grad()
-            _R.retain_grad() 
-            Q.retain_grad() 
-            R.retain_grad() 
-            theta.retain_grad() 
-            # _S.retain_grad()
-            # _T.retain_grad()
-            # _U.retain_grad()
-            # _g.retain_grad()
-            # _h.retain_grad()
-            # g.retain_grad()
-            # h.retain_grad()
-            f3.retain_grad()
-            f2.retain_grad()
-            f1.retain_grad()
-            f0.retain_grad()
-            a.retain_grad()
-            b.retain_grad()
-            c.retain_grad()
-            d.retain_grad()
-
-            surface000.retain_grad()
-            surface001.retain_grad()
-            surface010.retain_grad()
-            surface011.retain_grad()
-            surface100.retain_grad()
-            surface101.retain_grad()
-            surface110.retain_grad()
-            surface111.retain_grad()
-            # surface_scalar.retain_grad()
-
-            # alpha_before_rw.retain_grad()
-            # n_surfaces.retain_grad()
-            # surface_values.retain_grad()
-            B_ts.retain_grad()
-            B_weights.retain_grad()
-            B_alpha.retain_grad()
-            fs.retain_grad()
-
-            # s = torch.nn.functional.mse_loss(out['rgb'], torch.zeros_like(out['rgb']))
-            lambda_l2 = 0.
-            lambda_l1 = 1.
-            s = F.mse_loss(out['rgb'], torch.zeros_like(out['rgb'])) * lambda_l2 + \
-                torch.abs(out['rgb'] - torch.zeros_like(out['rgb'])).mean() * lambda_l1
+            lambda_l2 = 1
+            lambda_l1 = 0.
+            s = F.mse_loss(out['rgb'], rgb_gt) * lambda_l2 + \
+                torch.abs(out['rgb'] - rgb_gt).mean() * lambda_l1
             s += lambda_l_dist * l_dist 
             s += lambda_l_entropy * l_entropy
             s += sparsity_loss * l_sparsity
@@ -2827,32 +2252,6 @@ class SparseGrid(nn.Module):
             s += lambda_conv_mode_samp *  l_conv_mode_samp
             # s += l_samp_dist
             s.backward()
-
-            # accum = torch.sum(out['rgb'] * out['rgb'].grad)
-            # for i in range(alpha.shape[0]):
-            #     total_color = torch.sum(out['rgb'].grad * B_rgb[0, i])
-            #     accum = accum - B_weights[0, i] * total_color
-            #     grad_alpha = accum / (alpha[i]-1) + total_color * B_T[0,i]
-
-
-            # add fused surface normal loss
-
-            # ex_l = torch.tensor([
-            #     [6,1,14],
-            #     [5,1,14],
-            # ], dtype=l.dtype, device=l.device)
-
-            # l = torch.concat([ex_l, l], axis=0)
-
-            # cells = l[:, 0] * self.links.shape[2] * self.links.shape[1] + l[:, 1] * self.links.shape[1] + l[:, 2]
-            # self._surface_normal_loss_grad_check(cells, 0.1, connectivity_check=False, ignore_empty=True)
-
-        # [3,9,7]
-
-        # torch.sum(out_rgb.grad * (-1 / (1-alpha[0]) * (B_T[0,1]*alpha[1]*B_rgb[0,1] + B_T[0,2]*alpha[2]*B_rgb[0,2]) + (B_T[0,0]*B_rgb[0,0])))
-        # torch.sum(out_rgb.grad * (-1 / (1-alpha[1]) * (B_T[0,2]*alpha[2]*B_rgb[0,2]) + (B_T[0,1]*B_rgb[0,1])))
-
-        # dc_da = (-1 / (1-alpha[0]) * (B_T[0,1]*alpha[1]*(B_rgb[0,1] - self.opt.background_brightness) + B_T[0,2]*alpha[2]*(B_rgb[0,2]-self.opt.background_brightness)) + (B_T[0,0]*(B_rgb[0,0]-self.opt.background_brightness)))
 
 
         return out

@@ -132,8 +132,7 @@ else:
                             background_reso=args.background_reso,
                             surface_type=svox2.__dict__['SURFACE_TYPE_' + args.surface_type.upper()],
                             surface_init=args.surface_init,
-                            # use_octree=args.renderer_backend != 'surf_trav' or not USE_KERNEL,
-                            use_octree=False,
+                            use_octree=args.renderer_backend != 'surf_trav' or not USE_KERNEL or args.py_rendering,
                             trainable_fake_sample_std=args.trainable_fake_sample_std,
                             force_alpha=args.force_alpha)
 
@@ -645,13 +644,6 @@ while True:
 
 
 
-
-    # if epoch_id % max(factor, args.eval_every) == 0 and (epoch_id > 0 or not args.tune_mode):
-    # if epoch_id % max(factor, args.eval_every) == 0 and (epoch_id > 0):
-    #     # NOTE: we do an eval sanity check, if not in tune_mode
-    #     eval_step()
-    #     gc.collect()
-
     def train_step():
         global surf_lvs_original
         print('Train step')
@@ -770,23 +762,21 @@ while True:
             rays = svox2.Rays(batch_origins, batch_dirs, batch_mask)
 
             # with Timing("Fused pass"):
-            if not USE_KERNEL and not no_surface:
+            if (not USE_KERNEL or args.py_rendering) and not no_surface:
                 if args.surface_type != 'none':
                     out = grid._surface_render_gradcheck_lerp(rays, rgb_gt,
-                            beta_loss=args.lambda_beta,
                             sparsity_loss=args.lambda_sparsity,
-                            randomize=args.enable_random,
-                            alpha_weighted_norm_loss=args.alpha_weighted_norm_loss,
-                            no_surface=no_surface)
+                            lambda_l_dist = args.lambda_l_dist,
+                            lambda_l_entropy = args.lambda_l_entropy if gstep_id<args.l_entropy_step else 0.,
+                            lambda_conv_mode_samp = args.lambda_conv_mode_samp if gstep_id<args.conv_mode_step else 0.,
+                            run_backward=True,
+                            )
                 else:
                     raise NotImplementedError
             else:
                 out = grid.volume_render_fused(rays, rgb_gt,
                         beta_loss=args.lambda_beta,
                         sparsity_loss=args.lambda_sparsity if (grid.surface_data is None or no_surface) else args.lambda_inplace_alpha_sparsify,
-                        fused_surf_norm_reg_scale = lambda_surf_normal_loss if args.fused_surf_norm_reg else 0.0,
-                        fused_surf_norm_reg_con_check = not args.no_surf_norm_con_check,
-                        fused_surf_norm_reg_ignore_empty = args.surf_norm_reg_ignore_empty,
                         lambda_l2 = 1 - args.img_lambda_l1_ratio,
                         lambda_l1 = args.img_lambda_l1_ratio,
                         lambda_l_dist = args.lambda_l_dist,
@@ -808,27 +798,7 @@ while True:
             mse = F.mse_loss(rgb_gt, out['rgb'])
             if args.sparsify_only_trained_cells:
                 trained_cells_mask = grid.sparse_grad_indexer.clone()
-                # trained_cells_mask = grid.sparse_grad_indexer
 
-            # eval_step(step_id=gstep_id)
-
-            if not USE_KERNEL and not no_surface:
-                # with Timing("Backward pass"):
-                # # normalize surface gradient:
-                # mse.backward(retain_graph=True)
-                # # grid.surface_data.grad.max() / torch.prod((grid._scaling * grid._grid_size())).cuda()
-                # # grid.surface_data.grad = grid.surface_data.grad[:, 0] / (torch.prod(torch.stack(svox2.utils.inv_morton_code_3(torch.arange(grid.surface_data.shape[0]).cuda()),dim=-1),axis=-1)+1)
-                # grid.surface_data.grad = grid.surface_data.grad / torch.prod(torch.tensor(grid.links.shape, device=device))
-                # loss = 0
-                loss = F.mse_loss(out['rgb'], rgb_gt) * (1 - args.img_lambda_l1_ratio) + torch.abs(out['rgb'] - rgb_gt).mean() * args.img_lambda_l1_ratio
-                if 'extra_loss' in out:
-                    loss += args.lambda_l_dist * out['extra_loss'].get('l_dist', 0.)
-                    # loss += args.lambda_no_surf_init_density_lap_loss * out['extra_loss'].get('no_surf_init_density_lap_loss', 0.)
-                    # loss += args.lambda_normal_loss * out['extra_loss'].get('normal_loss', 0.)
-                
-                loss.backward()
-
-                # assert not torch.isnan(grid.surface_data.grad).any()
 
             # Stats
             mse_num : float = mse.detach().item()
@@ -870,18 +840,6 @@ while True:
                 if grid.use_background:
                     summary_writer.add_scalar("lr_sigma_bg", lr_sigma_bg, global_step=gstep_id)
                     summary_writer.add_scalar("lr_color_bg", lr_color_bg, global_step=gstep_id)
-                
-                # if not args.tune_mode:
-                #     # log alpha inspect
-                #     # world_coords = torch.tensor([[-0.1152,  0.0859,  0.1797]], device='cuda:0')
-                #     # coords = grid.world2grid(world_coords)
-                #     coords = torch.tensor([[101, 135, 161]], device='cuda', dtype=torch.float)
-                #     alpha_inspect = grid._C.sample_grid_raw_alpha(
-                #         grid._to_cpp(grid_coords=True),
-                #         coords,
-                #         -20.
-                #     )
-                #     summary_writer.add_scalar("alpha_inspect", alpha_inspect, global_step=gstep_id)
 
 
 
@@ -890,15 +848,6 @@ while True:
                 if args.weight_decay_sigma < 1.0:
                     grid.density_data.data *= args.weight_decay_sh
 
-            #  # For outputting the % sparsity of the gradient
-            #  indexer = grid.sparse_sh_grad_indexer
-            #  if indexer is not None:
-            #      if indexer.dtype == torch.bool:
-            #          nz = torch.count_nonzero(indexer)
-            #      else:
-            #          nz = indexer.size()
-            #      with open(os.path.join(args.train_dir, 'grad_sparsity.txt'), 'a') as sparsity_file:
-            #          sparsity_file.write(f"{gstep_id} {nz}\n")
 
             # Apply TV/Sparsity regularizers
             if (grid.surface_data is None or no_surface):
@@ -977,18 +926,6 @@ while True:
                     if (gstep_id + 1) % args.print_every == 0 and sign_loss is not None:
                         summary_writer.add_scalar("sign_loss", sign_loss.item() / args.lambda_surf_sign_loss, global_step=gstep_id)
 
-                # if args.lambda_l_dist > 0.:
-                #     py_out = grid._surface_render_gradcheck_lerp(rays, rgb_gt,
-                #             beta_loss=args.lambda_beta,
-                #             sparsity_loss=args.lambda_sparsity,
-                #             randomize=args.enable_random,
-                #             alpha_weighted_norm_loss=args.alpha_weighted_norm_loss,
-                #             no_surface=no_surface)
-                #     loss = args.lambda_l_dist * py_out['extra_loss'].get('l_dist', 0.)
-                #     loss.backward()
-                #     if (gstep_id + 1) % args.print_every == 0:
-                #         summary_writer.add_scalar("l_dist", py_out['extra_loss']['l_dist'].item(), global_step=gstep_id)
-
 
                 if args.lambda_sparsify_alpha > 0.0 or args.lambda_sparsify_surf > 0.0:
                     # with Timing("normal_loss"):
@@ -1018,16 +955,6 @@ while True:
                     if (gstep_id + 1) % args.print_every == 0:
                         summary_writer.add_scalar("viscosity_loss", vis_l.item(), global_step=gstep_id)
                         summary_writer.add_scalar("surf_grad_norm", grad_norm.item(), global_step=gstep_id)
-
-            # if args.lambda_alpha_lap_loss > 0.0:
-            #     grid.inplace_alpha_lap_grad(grid.density_data.grad,
-            #             scaling=args.lambda_alpha_lap_loss,
-            #             sparse_frac=args.alpha_lap_sparsity,
-            #             ndc_coeffs=dset.ndc_coeffs,
-            #             contiguous=args.tv_contiguous,
-            #             # use_kernel=USE_KERNEL,
-            #             density_is_sigma = grid.surface_data is None or no_surface 
-            #             )
 
             if args.lambda_tv_sh > 0.0:
                 #  with Timing("tv_color_inpl"):
@@ -1188,13 +1115,6 @@ while True:
                         args.lambda_tv_alpha *= args.tv_decay
                         args.lambda_tv_sh *= args.tv_decay
 
-                    # ckpt_path = path.join(args.train_dir, f'ckpt_{grid.links.shape[0]}_last.npz')
-                    # print('Saving', ckpt_path)
-                    # grid.save(ckpt_path, step_id=gstep_id)
-
-                    # eval_step(step_id=gstep_id)
-                    # gc.collect()
-
                     reso_id += 1
                     use_sparsify = True
                     z_reso = reso_list[reso_id] if isinstance(reso_list[reso_id], int) else reso_list[reso_id][2]
@@ -1222,13 +1142,6 @@ while True:
 
                     if args.upsample_density_add:
                         grid.density_data.data[:] += args.upsample_density_add
-                    
-                    # ckpt_path = path.join(args.train_dir, f'ckpt_{grid.links.shape[0]}_begin.npz')
-                    # print('Saving', ckpt_path)
-                    # grid.save(ckpt_path, step_id=gstep_id)
-
-                    # eval_step(step_id=gstep_id+1)
-                    # gc.collect()
 
                 if factor > 1 and reso_id < len(reso_list) - 1:
                     print('* Using higher resolution images due to large grid; new factor', factor)
@@ -1240,21 +1153,3 @@ while True:
     gc.collect()
     gstep_id_base += batches_per_epoch
 
-    #  ckpt_path = path.join(args.train_dir, f'ckpt_{epoch_id:05d}.npz')
-    # Overwrite prev checkpoints since they are very huge
-    # if args.save_every > 0 and (epoch_id + 1) % max(
-    #         factor, args.save_every) == 0 and not args.tune_mode:
-    #     print('Saving', ckpt_path)
-    #     grid.save(ckpt_path)
-
-
-    # if gstep_id_base >= args.n_iters:
-    #     print('* Final eval and save')
-    #     # eval_step()
-    #     global_stop_time = datetime.now()
-    #     secs = (global_stop_time - global_start_time).total_seconds()
-    #     timings_file = open(os.path.join(args.train_dir, 'time_mins.txt'), 'a')
-    #     timings_file.write(f"{secs / 60}\n")
-    #     if not args.tune_nosave:
-    #         grid.save(ckpt_path)
-    #     break

@@ -516,6 +516,7 @@ def setup_train_conf(return_parpser=False):
     group.add_argument('--tune_nosave', action='store_true', default=False,
                     help='do not save any checkpoint even at the end')
     group.add_argument('--final_render_eval', action='store_true', default=False)
+    group.add_argument('--py_rendering', action='store_true', default=False)
 
 
 
