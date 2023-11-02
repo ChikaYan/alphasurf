@@ -4643,6 +4643,8 @@ class SparseGrid(nn.Module):
 
                     all_tri.append(triangles)
                     all_vert.append(vertices)
+                triangles = np.stack(all_tri)
+                vertices = np.stack(all_vert)
 
             else:
                 # extracting based on nerf density
