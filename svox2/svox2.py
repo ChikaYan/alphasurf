@@ -4584,6 +4584,7 @@ class SparseGrid(nn.Module):
         self, 
         out_path:str = None, 
         density_thresh:float = None, 
+        surf_lvs:list = None,
         n_sample:int = 512,
         batch_size:int = 10000, 
         scene_scale:float = 1.,
@@ -4599,44 +4600,53 @@ class SparseGrid(nn.Module):
 
 
             if self.surface_data is not None:
-                # extracting surface
-                sample_vals_surf = []
-                for i in tqdm(range(0, len(points), batch_size)):
-                    _, sample_vals_surf_batch = self.sample_surface(
-                        points[i : i + batch_size],
-                        grid_coords=True,
-                        want_colors=False,
-                        default_surf= -1.
-                    )
-                    sample_vals_surf.append(sample_vals_surf_batch)
-                sample_vals_surf = torch.cat(sample_vals_surf, dim=0).view([n_sample, n_sample, n_sample])
+                all_tri = []
+                all_vert = []
+                for surf_lv in surf_lvs:
 
-                vertices, triangles = mcubes.marching_cubes(sample_vals_surf.cpu().detach().numpy(), 0)
-
-                vertices = vertices * self.links.shape / np.array([n_sample, n_sample, n_sample])
-
-                if density_thresh is not None:
-                    # remove vertices with lower density than threshold
-                    sample_vals_density = []
-                    for i in tqdm(range(0, len(vertices), batch_size)):
-                        sample_vals_density_batch, _ = self.sample(
-                            torch.tensor(vertices[i : i + batch_size], device=device, dtype=torch.float32),
+                    # extracting surface
+                    sample_vals_surf = []
+                    for i in tqdm(range(0, len(points), batch_size)):
+                        _, sample_vals_surf_batch = self.sample_surface(
+                            points[i : i + batch_size],
                             grid_coords=True,
-                            want_colors=False
+                            want_colors=False,
+                            default_surf= -1.
                         )
-                        sample_vals_density.append(sample_vals_density_batch)
+                        sample_vals_surf.append(sample_vals_surf_batch)
+                    sample_vals_surf = torch.cat(sample_vals_surf, dim=0).view([n_sample, n_sample, n_sample])
 
-                    sample_vals_density = torch.cat(
-                            sample_vals_density, dim=0)
+                    vertices, triangles = mcubes.marching_cubes(sample_vals_surf.cpu().detach().numpy(), surf_lv)
 
-                    invalid_mask = sample_vals_density[:,0].cpu().detach().numpy() < density_thresh
-                    id_remap = np.cumsum((~invalid_mask).astype(int)) - 1
-                    id_remap[invalid_mask] = -1
-                    triangles = id_remap[triangles]
-                    triangles = triangles[(triangles >= 0).all(axis=-1)]
-                    vertices = vertices[~invalid_mask]
+                    vertices = vertices * self.links.shape / np.array([n_sample, n_sample, n_sample])
+
+                    if density_thresh is not None:
+                        # remove vertices with lower density than threshold
+                        sample_vals_density = []
+                        for i in tqdm(range(0, len(vertices), batch_size)):
+                            sample_vals_density_batch, _ = self.sample(
+                                torch.tensor(vertices[i : i + batch_size], device=device, dtype=torch.float32),
+                                grid_coords=True,
+                                want_colors=False
+                            )
+                            sample_vals_density.append(sample_vals_density_batch)
+
+                        sample_vals_density = torch.cat(
+                                sample_vals_density, dim=0)
+
+                        invalid_mask = sample_vals_density[:,0].cpu().detach().numpy() < density_thresh
+                        id_remap = np.cumsum((~invalid_mask).astype(int)) - 1
+                        id_remap[invalid_mask] = -1
+                        triangles = id_remap[triangles]
+                        triangles = triangles[(triangles >= 0).all(axis=-1)]
+                        vertices = vertices[~invalid_mask]
+
+                    all_tri.append(triangles)
+                    all_vert.append(vertices)
+
             else:
                 # extracting based on nerf density
+                # do not use surf lv at all, hence don't support multi lv surfaces
                 sample_vals_density = []
                 for i in tqdm(range(0, len(points), batch_size)):
                     sample_vals_density_batch, _ = self.sample(
@@ -4647,7 +4657,7 @@ class SparseGrid(nn.Module):
                     sample_vals_density.append(sample_vals_density_batch)
                 sample_vals_density = torch.cat(sample_vals_density, dim=0).view([n_sample, n_sample, n_sample])
 
-                vertices, triangles = mcubes.marching_cubes(sample_vals_density.cpu().detach().numpy(), 0 if density_thresh is None else density_thresh)
+                vertices, triangles = mcubes.marching_cubes(sample_vals_density.cpu().detach().numpy(), 10 if density_thresh is None else density_thresh)
                 vertices = vertices * self.links.shape / np.array([n_sample, n_sample, n_sample])
 
 
@@ -4667,6 +4677,7 @@ class SparseGrid(nn.Module):
                         for j in range(3):
                             f.write(' %s/%s' % (str(t_pos_idx[i][j]+1), '' if v_tex is None else str(t_tex_idx[i][j]+1)))
                         f.write("\n")
+            
             if to_world:
                 vertices = self.grid2world(torch.from_numpy(vertices.astype('float32'))).numpy() / scene_scale
             if out_path is not None:

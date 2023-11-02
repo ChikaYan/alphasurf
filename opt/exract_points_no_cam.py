@@ -81,6 +81,12 @@ parser.add_argument(
     help="density for downsampling the pts, set to 0 to disable"
 )
 parser.add_argument(
+    "--extract_surf",
+    action='store_true', 
+    default=False,
+    help="Extract surface instead of point clouds"
+)
+parser.add_argument(
     "--scene_scale",
     type=float,
     default=2./3.,
@@ -188,52 +194,58 @@ if args.surf_lv_set is None:
 else:
     surf_lv_set = [args.surf_lv_set]
 
-# surf_lv_set = [10, 30, 50, 70, 90]
 
-all_pts = []
-for lv_set in surf_lv_set:
-    pts = grid.extract_pts(n_sample=args.n_sample, density_thresh=args.intersect_th, scene_scale=scene_scale, to_world=True, surf_lv_set=lv_set)
-    # pts = grid.extract_pts(n_sample=args.n_sample, density_thresh=lv_set, scene_scale=scene_scale, to_world=True, surf_lv_set=lv_set)
-    pts = pts.cpu().detach().numpy()
 
-    if dset is not None and hasattr(dset, 'pt_rescale'):
-        # rescale for DTU
-        pts = dset.world2rescale(pts)
+if args.extract_surf:
+    grid.extract_mesh(args.out_path, density_thresh=args.intersect_th, scene_scale=scene_scale, to_world=True)
+    print(f'Saving pts to {args.out_path}')
+else:
+    # surf_lv_set = [10, 30, 50, 70, 90]
 
-    if args.downsample_density > 0 and len(pts) > 0:
+    all_pts = []
+    for lv_set in surf_lv_set:
+        pts = grid.extract_pts(n_sample=args.n_sample, density_thresh=args.intersect_th, scene_scale=scene_scale, to_world=True, surf_lv_set=lv_set)
+        # pts = grid.extract_pts(n_sample=args.n_sample, density_thresh=lv_set, scene_scale=scene_scale, to_world=True, surf_lv_set=lv_set)
+        pts = pts.cpu().detach().numpy()
+
+        if dset is not None and hasattr(dset, 'pt_rescale'):
+            # rescale for DTU
+            pts = dset.world2rescale(pts)
+
+        if args.downsample_density > 0 and len(pts) > 0:
+            nn_engine = skln.NearestNeighbors(n_neighbors=1, radius=args.downsample_density, algorithm='kd_tree', n_jobs=-1)
+            nn_engine.fit(pts)
+            rnn_idxs = nn_engine.radius_neighbors(pts, radius=args.downsample_density, return_distance=False)
+            mask = np.ones(pts.shape[0], dtype=np.bool_)
+            for curr, idxs in enumerate(rnn_idxs):
+                if mask[curr]:
+                    mask[idxs] = 0
+                    mask[curr] = 1
+            pts = pts[mask]
+
+        all_pts.append(pts)
+
+    all_pts = np.concatenate(all_pts, axis=0)
+    if args.downsample_density > 0 and len(all_pts) > 0:
         nn_engine = skln.NearestNeighbors(n_neighbors=1, radius=args.downsample_density, algorithm='kd_tree', n_jobs=-1)
-        nn_engine.fit(pts)
-        rnn_idxs = nn_engine.radius_neighbors(pts, radius=args.downsample_density, return_distance=False)
-        mask = np.ones(pts.shape[0], dtype=np.bool_)
+        nn_engine.fit(all_pts)
+        rnn_idxs = nn_engine.radius_neighbors(all_pts, radius=args.downsample_density, return_distance=False)
+        mask = np.ones(all_pts.shape[0], dtype=np.bool_)
         for curr, idxs in enumerate(rnn_idxs):
             if mask[curr]:
                 mask[idxs] = 0
                 mask[curr] = 1
-        pts = pts[mask]
+        all_pts = all_pts[mask]
 
-    all_pts.append(pts)
-
-all_pts = np.concatenate(all_pts, axis=0)
-if args.downsample_density > 0 and len(all_pts) > 0:
-    nn_engine = skln.NearestNeighbors(n_neighbors=1, radius=args.downsample_density, algorithm='kd_tree', n_jobs=-1)
-    nn_engine.fit(all_pts)
-    rnn_idxs = nn_engine.radius_neighbors(all_pts, radius=args.downsample_density, return_distance=False)
-    mask = np.ones(all_pts.shape[0], dtype=np.bool_)
-    for curr, idxs in enumerate(rnn_idxs):
-        if mask[curr]:
-            mask[idxs] = 0
-            mask[curr] = 1
-    all_pts = all_pts[mask]
-
-print(f'Saving pts to {args.out_path}')
-if args.out_path.endswith('txt'):
-    np.savetxt(args.out_path, all_pts)
-elif args.out_path.endswith('ply'):
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(all_pts)
-    o3d.io.write_point_cloud(args.out_path, pcd)
-else:
-    np.save(args.out_path, all_pts)
+    print(f'Saving pts to {args.out_path}')
+    if args.out_path.endswith('txt'):
+        np.savetxt(args.out_path, all_pts)
+    elif args.out_path.endswith('ply'):
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(all_pts)
+        o3d.io.write_point_cloud(args.out_path, pcd)
+    else:
+        np.save(args.out_path, all_pts)
 
 if args.del_ckpt:
     os.remove(args.ckpt)
