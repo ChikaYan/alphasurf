@@ -108,7 +108,7 @@ def main():
             cpos = (t, focal_point, up)
             obj.plot(color='white', cpos=cpos, 
                     screenshot=f'{args.out_dir}/{i:05d}.png', off_screen=True, eye_dome_lighting=True,
-                    point_size=0.01, show_axes=False, background=background, window_size=img_size, zoom=args.zoom_factor,
+                    point_size=2, show_axes=False, background=background, window_size=img_size, zoom=args.zoom_factor,
                     notebook=False,
                     )
 
