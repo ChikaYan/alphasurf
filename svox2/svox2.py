@@ -2964,7 +2964,8 @@ class SparseGrid(nn.Module):
         init_type='density', # init from density or weight
         weight_init_cams=None,
         visibility_pruning_scale=0, # remove surfaces at voxels that have less visibility than scale * most visible voxel
-        mask_pruning_rays=None # remove density of masks cells
+        mask_pruning_rays=None, # remove density of masks cells
+        zero_lv_density=None,
         ):
         '''
         Initialize surface data from density values
@@ -2972,6 +2973,9 @@ class SparseGrid(nn.Module):
         alpha_rescale: if not None, rescale the alpha raw values
         '''
         with torch.no_grad():
+
+            if zero_lv_density is None:
+                zero_lv_density = density_lvs[len(density_lvs) // 2]
 
             if mask_pruning_rays is not None:
                 # first set grid that never intersect with object rays
@@ -2983,7 +2987,7 @@ class SparseGrid(nn.Module):
                 grid_obj_mask = torch.zeros_like(self.density_data, dtype=torch.float32)[:, 0]
                 batch_size = 1024 * 16
                 for i in range(0, rays.origins.shape[0], batch_size):
-                    _C.sparse_grid_mask_render(
+                    _C.sparse_grid_mask_renderalpha_rescale(
                         self._to_cpp(), 
                         rays[i:i+batch_size]._to_cpp(),
                         self.opt.near_clip,
@@ -3052,7 +3056,6 @@ class SparseGrid(nn.Module):
                     # alpha lv set is used as sigma lv set
                     device = self.density_data.device
 
-                    zero_lv_density = density_lvs[len(density_lvs) // 2]
                     self.level_set_data = torch.tensor(density_lvs, device=device) - zero_lv_density
 
                     surface_data = self.density_data.detach().clone()
@@ -3116,8 +3119,8 @@ class SparseGrid(nn.Module):
 
                     # self.density_data.data = self.density_data.data.max() - self.density_data.data
                 else:
+                    # initialize with weight pruning
                     device = self.density_data.device
-                    zero_lv_density = density_lvs[len(density_lvs) // 2]
                     self.level_set_data = torch.tensor(density_lvs, device=device, dtype=torch.float32) - zero_lv_density
 
                     reso = self.links.shape
@@ -4528,6 +4531,7 @@ class SparseGrid(nn.Module):
     ):
         '''
             Find iso-surface pts within the voxels by shooting rays perpendicular to x,y,z axis
+            If self is an Plenoxel instance, then surf_lv_set is ignored and density level set at density_thresh is extracted
         '''
 
         pts = _C.__dict__[f"cubic_extract_iso_pts"](

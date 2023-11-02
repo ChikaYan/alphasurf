@@ -188,9 +188,12 @@ if args.surf_lv_set is None:
 else:
     surf_lv_set = [args.surf_lv_set]
 
+# surf_lv_set = [10, 30, 50, 70, 90]
+
 all_pts = []
 for lv_set in surf_lv_set:
     pts = grid.extract_pts(n_sample=args.n_sample, density_thresh=args.intersect_th, scene_scale=scene_scale, to_world=True, surf_lv_set=lv_set)
+    # pts = grid.extract_pts(n_sample=args.n_sample, density_thresh=lv_set, scene_scale=scene_scale, to_world=True, surf_lv_set=lv_set)
     pts = pts.cpu().detach().numpy()
 
     if dset is not None and hasattr(dset, 'pt_rescale'):

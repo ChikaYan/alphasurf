@@ -290,9 +290,13 @@ def setup_train_conf(return_parpser=False):
     group.add_argument('--surface_init_rescale', type=float, default=
                         0.1,
                         help='Rescale the raw values of surfaces')
+    group.add_argument('--surf_init_dilate', type=int, default=
+                        2,
+                        help='Number of dilation when initing surface from density')
     group.add_argument('--surf_init_type', type=str, default='density',
                         choices=['density', 'reweight'])
     group.add_argument('--visibility_pruning_scale', type=float, default=0.01)
+    group.add_argument('--zero_lv_density', type=float, default=None)
     group.add_argument('--surface_init_reset_alpha',action='store_true', default=False,
                         help='Reset alpha value after no surface init')
     group.add_argument('--surf_init_reset_all',action='store_true', default=False,
@@ -527,13 +531,18 @@ def setup_train_conf(return_parpser=False):
     group.add_argument('--lambda_outside_loss', type=float, default=1e-3)
     group.add_argument('--lambda_alpha_lap_loss', type=float, default=0)
     group.add_argument('--lambda_no_surf_init_density_lap_loss', type=float, default=0)
-    group.add_argument('--lambda_normal_loss', type=float, default=0)
+    group.add_argument('--lambda_normal_loss_l1', type=float, default=0)
+    group.add_argument('--lambda_normal_loss_l2', type=float, default=0)
     group.add_argument('--surf_normal_loss_lambda_type', type=str, default='const', 
                         choices=['const', 'linear'])
 
-    group.add_argument('--lambda_normal_loss_final', type=float, default=0)
-    group.add_argument('--lambda_normal_loss_delay_steps', type=float, default=0)
-    group.add_argument('--lambda_normal_loss_decay_steps', type=float, default=0)
+    group.add_argument('--lambda_normal_loss_l1_final', type=float, default=0)
+    group.add_argument('--lambda_normal_loss_l1_delay_steps', type=float, default=0)
+    group.add_argument('--lambda_normal_loss_l1_decay_steps', type=float, default=0)
+
+    group.add_argument('--lambda_normal_loss_l2_final', type=float, default=0)
+    group.add_argument('--lambda_normal_loss_l2_delay_steps', type=float, default=0)
+    group.add_argument('--lambda_normal_loss_l2_decay_steps', type=float, default=0)
 
     group.add_argument('--lambda_surf_sign_loss', type=float, default=0)
     group.add_argument('--lambda_surface_eikonal', type=float, default=0)
@@ -551,7 +560,7 @@ def setup_train_conf(return_parpser=False):
     group.add_argument('--tv_surface_sparsity', type=float, default=0.01)
     group.add_argument('--norm_surface_sparsity', type=float, default=0.01)
     group.add_argument('--no_surf_norm_con_check', action='store_true', default=False,
-                    help='Do not check surface connectivity when computing surface norm regularization')
+                    help='Do not check surface connectivity when computing surface norm regularization, if True, surf_norm_reg_ignore_empty is automatically enabled')
     group.add_argument('--surf_norm_reg_ignore_empty', action='store_true', default=False,
                     help='Do not apply surface normal reg if two voxels are both empty')
     group.add_argument('--surf_norm_reg_l1', action='store_true', default=False,

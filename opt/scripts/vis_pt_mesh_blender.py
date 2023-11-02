@@ -15,6 +15,8 @@ parser.add_argument('--is_mesh', action='store_true', default=False)
 parser.add_argument('--no_color', action='store_true', default=False)
 parser.add_argument('--n_imgs', type=int, default=30)
 parser.add_argument('--crop_vid', action='store_true', default=False)
+parser.add_argument('--mask_crop', action='store_true', default=False)
+parser.add_argument('--c2w_path', default='/rds/project/rds-qxpdOeYWi78/plenoxels/data/nerf_synthetic/test_c2ws.npy', type=str)
 
 args = parser.parse_args()
 
@@ -26,7 +28,7 @@ Path(args.out_dir).mkdir(exist_ok=True, parents=True)
 
 obj = pv.read(args.input_path)
 
-c2w_path = '/rds/project/rds-qxpdOeYWi78/plenoxels/data/nerf_synthetic/test_c2ws.npy'
+c2w_path = args.c2w_path
 
 for scene in ['ficus', 'drums', 'materials']:
     if scene in args.input_path:
@@ -39,6 +41,30 @@ mask = (obj.points < 1.5).all(axis=-1) & (obj.points > -1.5).all(axis=-1)
 # if args.mask_crop:
 #     filter_mask = ((obj.points > np.array([[0.1, 0.1, -100]])).all(axis=-1)) & ((obj.points < np.array([[100, 100, 0.]])).all(axis=-1))
 #     mask = mask & (~filter_mask)
+
+if args.mask_crop:
+    # # for wine
+    filter_mask = ((obj.points > np.array([[0., -100, -100]])).all(axis=-1)) | ((obj.points < np.array([[100, 0., 100.]])).all(axis=-1))
+    mask = mask & (filter_mask)
+
+    # for bulldozer2
+    filter_mask = (obj.points > np.array([[-100, -0.15, -1.]])).all(axis=-1)
+    mask = mask & (filter_mask)
+
+if 'ship_bottle' in args.input_path:
+    filter_mask = (obj.points > np.array([[-0.1, -999, -999]])).all(axis=-1)
+    mask = mask & (filter_mask)
+elif 'chest' in args.input_path:
+    filter_mask = (obj.points > np.array([[-999, -0.15, -999]])).all(axis=-1) |  (obj.points < np.array([[100, 100., 0.]])).all(axis=-1)
+    mask = mask & (filter_mask)
+elif 'monkey' in args.input_path:
+    filter_mask = (obj.points < np.array([[999, 0.2, 999]])).all(axis=-1) |  (obj.points < np.array([[100, 100., -0.2]])).all(axis=-1)
+    mask = mask & (filter_mask)
+elif '/pot_burger/' in args.input_path:
+    filter_mask = (obj.points > np.array([[-999, -0.3, -999]])).all(axis=-1)
+    mask = mask & (filter_mask)
+
+
 
 if args.crop_vid:
     c2w = c2ws[0]
@@ -115,17 +141,22 @@ for i in range(0, len(c2ws), len(c2ws) // render_num):
         p.show(screenshot=f'{args.out_dir}/{i:05d}.png', auto_close=False)
     else:
         cpos = (t, focal_point, up)
+        kwargs = {
+            "cpos": cpos,
+            "screenshot": f'{args.out_dir}/{i:05d}.png',
+            "off_screen": True,
+            "eye_dome_lighting": True,
+            "point_size": 1,
+            "show_axes": False,
+            "background": background,
+            "window_size": img_size,
+            "zoom": 0.75,
+        }
         if not args.no_color:
-            obj.plot(scalars='RGB', rgb=True, cpos=cpos, 
-                    screenshot=f'{args.out_dir}/{i:05d}.png', off_screen=True, eye_dome_lighting=True,
-                    point_size=1, show_axes=False, background=background, window_size=img_size, zoom=0.75,
-                    notebook=False,
-                    )
+            
+            obj.plot(scalars='RGB', rgb=True, **kwargs)
         else:
-            obj.plot(color='white', cpos=cpos, 
-                    screenshot=f'{args.out_dir}/{i:05d}.png', off_screen=True, eye_dome_lighting=True,
-                    point_size=1, show_axes=False, background=background, window_size=img_size, zoom=0.75,
-                    notebook=False,
-                    )
+            obj.plot(color='white', **kwargs)
+
 
 

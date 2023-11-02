@@ -57,6 +57,18 @@ class NeRFDataset(DatasetBase):
         data_path = path.join(root, split_name)
         data_json = path.join(root, "transforms_" + split_name + ".json")
 
+        if 'scannerf' in root:
+            # scannerf dataset
+            if split_name == 'train':
+                data_path = path.join(root, f'{split_name}_images')
+                data_json = path.join(root, "train_all_100.json")
+
+            else:
+                data_path = path.join(root, 'val_images')
+                data_json = path.join(root, 'val_0.json')
+            
+            scene_scale = 3/2
+
         print("LOAD DATA", data_path)
 
         j = json.load(open(data_json, "r"))
@@ -81,6 +93,10 @@ class NeRFDataset(DatasetBase):
             0.5 * all_gt[0].shape[1] / np.tan(0.5 * j["camera_angle_x"])
         )
         self.c2w = torch.stack(all_c2w)
+
+        if 'scannerf' in root:
+            np.save(path.join(root, 'train_100_c2w.npy'), self.c2w.numpy())
+
         self.c2w[:, :3, 3] *= scene_scale
         # self.c2w[:, :3, 3] gets the tranlations 
 

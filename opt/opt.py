@@ -234,8 +234,11 @@ else:
 
 
 if args.surf_normal_loss_lambda_type == 'linear':
-    lambda_surf_normal_loss_func = get_linear_lr_func(args.lambda_normal_loss, args.lambda_normal_loss_final, 
-                                    args.lambda_normal_loss_delay_steps, args.lambda_normal_loss_decay_steps)
+    lambda_surf_normal_loss_l1_func = get_linear_lr_func(args.lambda_normal_loss_l1, args.lambda_normal_loss_l1_final, 
+                                    args.lambda_normal_loss_l1_delay_steps, args.lambda_normal_loss_l1_decay_steps)
+    lambda_surf_normal_loss_l2_func = get_linear_lr_func(args.lambda_normal_loss_l2, args.lambda_normal_loss_l2_final, 
+                                    args.lambda_normal_loss_l2_delay_steps, args.lambda_normal_loss_l2_decay_steps)
+
 
 
 if args.fs_std_decay_type == 'linear':
@@ -348,7 +351,9 @@ if args.load_pretrain_density_sh is not None:
         init_type=args.surf_init_type,
         weight_init_cams=resample_cameras,
         visibility_pruning_scale=args.visibility_pruning_scale,
-        mask_pruning_rays=mask_pruning_rays
+        mask_pruning_rays=mask_pruning_rays,
+        dilate=args.surf_init_dilate,
+        zero_lv_density=args.zero_lv_density,
         )
 
     # pred_pts = []
@@ -689,9 +694,11 @@ while True:
                 lr_basis = args.lr_basis * lr_basis_factor
 
             if args.surf_normal_loss_lambda_type == 'linear':
-                lambda_surf_normal_loss = lambda_surf_normal_loss_func(gstep_id)
+                lambda_surf_normal_loss_l1 = lambda_surf_normal_loss_l1_func(gstep_id)
+                lambda_surf_normal_loss_l2 = lambda_surf_normal_loss_l2_func(gstep_id)
             else:
-                lambda_surf_normal_loss = args.lambda_normal_loss
+                lambda_surf_normal_loss_l1 = args.lambda_normal_loss_l1
+                lambda_surf_normal_loss_l2 = args.lambda_normal_loss_l2
 
             # update fake_sample_std if needed
             if grid.opt.surf_fake_sample and not args.trainable_fake_sample_std:
@@ -784,9 +791,9 @@ while True:
                 out = grid.volume_render_fused(rays, rgb_gt,
                         beta_loss=args.lambda_beta,
                         sparsity_loss=args.lambda_sparsity if (grid.surface_data is None or no_surface) else args.lambda_inplace_alpha_sparsify,
-                        fused_surf_norm_reg_scale = lambda_surf_normal_loss if args.fused_surf_norm_reg else 0.0,
-                        fused_surf_norm_reg_con_check = not args.no_surf_norm_con_check,
-                        fused_surf_norm_reg_ignore_empty = args.surf_norm_reg_ignore_empty,
+                        # fused_surf_norm_reg_scale = lambda_surf_normal_loss if args.fused_surf_norm_reg else 0.0, # fused_surf_norm_reg is no longer supported
+                        # fused_surf_norm_reg_con_check = not args.no_surf_norm_con_check,
+                        # fused_surf_norm_reg_ignore_empty = args.surf_norm_reg_ignore_empty,
                         lambda_l2 = 1 - args.img_lambda_l1_ratio,
                         lambda_l1 = args.img_lambda_l1_ratio,
                         lambda_l_dist = args.lambda_l_dist,
@@ -853,7 +860,8 @@ while True:
                 summary_writer.add_scalar("lr_sigma", lr_sigma, global_step=gstep_id)
                 summary_writer.add_scalar("lr_alpha", lr_alpha, global_step=gstep_id)
                 summary_writer.add_scalar("lr_surface", lr_surface, global_step=gstep_id)
-                summary_writer.add_scalar("lambda_surf_normal_loss", lambda_surf_normal_loss, global_step=gstep_id)
+                summary_writer.add_scalar("lambda_surf_normal_loss_l1", lambda_surf_normal_loss_l1, global_step=gstep_id)
+                summary_writer.add_scalar("lambda_surf_normal_loss_l2", lambda_surf_normal_loss_l2, global_step=gstep_id)
                 if not args.tune_mode:
                     summary_writer.add_scalar("max_density", grid.density_data.max().cpu().detach().numpy(), global_step=gstep_id)
                     summary_writer.add_scalar("min_density", grid.density_data.min().cpu().detach().numpy(), global_step=gstep_id)
@@ -929,21 +937,37 @@ while True:
                             contiguous=args.tv_contiguous,
                             alpha_dependency=args.surf_tv_alpha_dependency)
 
-                if lambda_surf_normal_loss > 0.0 and not args.fused_surf_norm_reg:
+                if lambda_surf_normal_loss_l1 > 0.0 and not args.fused_surf_norm_reg:
                     # with Timing("normal_loss"):
                     norm_loss = grid.inplace_surface_normal_grad(grid.surface_data.grad,
-                            scaling=lambda_surf_normal_loss,
+                            scaling=lambda_surf_normal_loss_l1,
                             sparse_frac=args.norm_surface_sparsity,
                             ndc_coeffs=dset.ndc_coeffs,
                             contiguous=args.tv_contiguous,
                             # use_kernel=not args.py_surf_norm_reg,
                             connectivity_check=not args.no_surf_norm_con_check,
                             ignore_empty=args.surf_norm_reg_ignore_empty,
-                            use_l1=args.surf_norm_reg_l1,
+                            use_l1=True,
                             )
 
                     if (gstep_id + 1) % args.print_every == 0 and norm_loss is not None:
-                        summary_writer.add_scalar("surf_norm_loss", norm_loss, global_step=gstep_id)
+                        summary_writer.add_scalar("surf_norm_loss_l1", norm_loss, global_step=gstep_id)
+
+                if lambda_surf_normal_loss_l2 > 0.0 and not args.fused_surf_norm_reg:
+                    # with Timing("normal_loss"):
+                    norm_loss = grid.inplace_surface_normal_grad(grid.surface_data.grad,
+                            scaling=lambda_surf_normal_loss_l2,
+                            sparse_frac=args.norm_surface_sparsity,
+                            ndc_coeffs=dset.ndc_coeffs,
+                            contiguous=args.tv_contiguous,
+                            # use_kernel=not args.py_surf_norm_reg,
+                            connectivity_check=not args.no_surf_norm_con_check,
+                            ignore_empty=args.surf_norm_reg_ignore_empty,
+                            use_l1=False,
+                            )
+
+                    if (gstep_id + 1) % args.print_every == 0 and norm_loss is not None:
+                        summary_writer.add_scalar("surf_norm_loss_l2", norm_loss, global_step=gstep_id)
 
                 if args.lambda_surface_eikonal > 0.0:
                     # with Timing("normal_loss"):

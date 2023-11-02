@@ -13,7 +13,8 @@ def auto_dataset(root : str, *args, **kwargs):
         print("Detected LLFF dataset")
         return LLFFDataset(root, *args, **kwargs)
     elif path.isfile(path.join(root, 'transforms.json')) or \
-         path.isfile(path.join(root, 'transforms_train.json')):
+         path.isfile(path.join(root, 'transforms_train.json')) or \
+         path.isfile(path.join(root, 'train_all_100.json')):
         print("Detected NeRF (Blender) dataset")
         return NeRFDataset(root, *args, **kwargs)
     elif path.isfile(path.join(root, 'cameras_large.npz')):
