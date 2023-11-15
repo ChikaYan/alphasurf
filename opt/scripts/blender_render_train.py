@@ -18,7 +18,6 @@ FORMAT = 'OPEN_EXR'
 # FORMAT = 'PNG'
 RANDOM_VIEWS = True
 UPPER_VIEWS = True
-UPPER_VIEWS = True
 
 argv = sys.argv
 argv = argv[argv.index("--") + 1:]
@@ -26,6 +25,10 @@ scene_name = argv[0]
 # out_path = f'/home/tw554/plenoxels/data/nerf_synthetic/{scene_name}/train/'
 out_path = f'/rds/project/rds-qxpdOeYWi78/plenoxels/data/nerf_synthetic/{scene_name}/train/'
 VIEWS = 100
+
+if len(argv) > 1:
+    RESOLUTION = int(argv[1])
+    out_path = f'/rds/project/rds-qxpdOeYWi78/plenoxels/data/nerf_synthetic/{scene_name}_{RESOLUTION}/train/'
 
 
 fp = bpy.path.abspath(out_path)

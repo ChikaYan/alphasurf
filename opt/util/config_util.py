@@ -46,6 +46,14 @@ def define_common_args(parser : configargparse.ArgumentParser):
                          type=int,
                          default=100,
                          help="LLFF holdout every")
+    group.add_argument('--llff_radius_long_z',
+                         action='store_true',
+                         default=False)
+    group.add_argument('--scene_radius_rescale',
+                         type=float,
+                         default=1.,
+                         help="rescale the scene radius, applied to all scene types")
+    
     group.add_argument('--dtu_no_mask',
                          action='store_true',
                          default=False)
@@ -197,6 +205,7 @@ def build_data_options(args):
         'normalize_by_camera': args.normalize_by_camera,
         'permutation': args.perm,
         'apply_mask': not args.dtu_no_mask,
+        'llff_radius_long_z': args.llff_radius_long_z
     }
 
 def maybe_merge_config_file(args, allow_invalid=False):
@@ -321,6 +330,7 @@ def setup_train_conf(return_parpser=False):
 
     group.add_argument('--background_nlayers', type=int, default=0,#32,
                     help='Number of background layers (0=disable BG model)')
+    group.add_argument('--alphasurf_no_inherit_background_layers', action='store_true', default=False,)
     group.add_argument('--background_reso', type=int, default=512, help='Background resolution')
 
 
@@ -555,6 +565,8 @@ def setup_train_conf(return_parpser=False):
     group.add_argument('--lambda_tv_alpha', type=float, default=1e-5)
     group.add_argument('--lambda_tv_surface', type=float, default=0)
     group.add_argument('--surf_tv_alpha_dependency', action='store_true', default=False)
+    group.add_argument('--surf_tv_use_edge', action='store_true', default=False)
+    group.add_argument('--surf_tv_edge_value', type=float, default=-1.)
     group.add_argument('--tv_sparsity', type=float, default=0.01)
     group.add_argument('--alpha_lap_sparsity', type=float, default=0.01)
     group.add_argument('--tv_surface_sparsity', type=float, default=0.01)

@@ -52,6 +52,7 @@ class LLFFDataset(DatasetBase):
         render_style="",
         hold_every=0, #8,
         offset=250,
+        llff_radius_long_z=False,
         **kwargs
     ):
         super().__init__()
@@ -94,6 +95,8 @@ class LLFFDataset(DatasetBase):
             #         self.imgs.append(img)
                 
         self.is_train_split = is_train_split
+        self.llff_radius_long_z = llff_radius_long_z
+        print(f"llff_radius_long_z: {self.llff_radius_long_z}")
 
         self._load_images()
         self.n_images, self.h_full, self.w_full, _ = self.gt.shape
@@ -114,6 +117,7 @@ class LLFFDataset(DatasetBase):
             self.h, self.w = self.h_full, self.w_full
             self.intrins = self.intrins_full
         self.should_use_background = False  # Give warning
+
 
 
     def _load_images(self):
@@ -184,6 +188,8 @@ class LLFFDataset(DatasetBase):
         radx = 1 + 2 * self.sfm.offset / self.gt.size(2)
         rady = 1 + 2 * self.sfm.offset / self.gt.size(1)
         radz = 1.0
+        if self.llff_radius_long_z:
+            radz = min(radx, rady)
         self.scene_center = [0.0, 0.0, 0.0]
         self.scene_radius = [radx, rady, radz]
         print('scene_radius', self.scene_radius)

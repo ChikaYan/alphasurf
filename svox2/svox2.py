@@ -13,7 +13,6 @@ import numpy as np
 import sympy
 from sympy.solvers import solve
 from sympy import Symbol
-import kaolin
 import mcubes
 
 _C = utils._get_c_extension()
@@ -974,15 +973,16 @@ class SparseGrid(nn.Module):
         self.basis_rms: Optional[torch.Tensor] = None
         self.use_octree = use_octree
 
-        if use_octree:
-            # create place holder feature grid
-            # this grid is empty and is only used for ray-voxel intersection determination
-            feature_grid = torch.ones(1, 1, reso[0], reso[1], reso[2]).to(device)
-            octree, length, feature = kaolin.ops.spc.feature_grids_to_spc(feature_grid)
-            max_level, pyramids, exsum = kaolin.ops.spc.scan_octrees(octree, length)
-            point_hierarchy = kaolin.ops.spc.generate_points(octree, pyramids, exsum)
+        # if use_octree:
+        #     import kaolin
+        #     # create place holder feature grid
+        #     # this grid is empty and is only used for ray-voxel intersection determination
+        #     feature_grid = torch.ones(1, 1, reso[0], reso[1], reso[2]).to(device)
+        #     octree, length, feature = kaolin.ops.spc.feature_grids_to_spc(feature_grid)
+        #     max_level, pyramids, exsum = kaolin.ops.spc.scan_octrees(octree, length)
+        #     point_hierarchy = kaolin.ops.spc.generate_points(octree, pyramids, exsum)
             
-            self.spc = _SPC(octree, length[0], feature, max_level, pyramids[0], exsum, point_hierarchy)
+        #     self.spc = _SPC(octree, length[0], feature, max_level, pyramids[0], exsum, point_hierarchy)
 
         self._C = _C
 
@@ -5123,6 +5123,8 @@ class SparseGrid(nn.Module):
                                 sparse_frac: float = 0.01,
                                 ndc_coeffs: Tuple[float, float] = (-1.0, -1.0),
                                 alpha_dependency: bool = True,
+                                ignore_edge: bool = True,
+                                edge_value: float = -1.,
                                 contiguous: bool = True
                             ):
         """
@@ -5145,7 +5147,8 @@ class SparseGrid(nn.Module):
                         rand_cells,
                         self._get_sparse_grad_indexer(),
                         0, 1, scaling,
-                        True,
+                        ignore_edge,
+                        edge_value,
                         self.opt.last_sample_opaque,
                         ndc_coeffs[0], ndc_coeffs[1],
                         alpha_dependency,

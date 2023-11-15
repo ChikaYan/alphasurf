@@ -103,6 +103,11 @@ if args.background_nlayers > 0 and not dset.should_use_background:
 dset_test = datasets[args.dataset_type](
         args.data_dir, split="test", **config_util.build_data_options(args))
 
+
+dset.scene_radius = [dset.scene_radius[0] * args.scene_radius_rescale, dset.scene_radius[1] * args.scene_radius_rescale, dset.scene_radius[2] * args.scene_radius_rescale]
+
+print(f'new scene radius: {dset.scene_radius}')
+
 global_start_time = datetime.now()
 
 
@@ -327,6 +332,16 @@ if args.load_pretrain_density_sh is not None:
 
         grid.links = torch.from_numpy(links).to(device=device)
         grid.capacity = grid.sh_data.size(0)
+
+        if 'background_data' in z and not args.alphasurf_no_inherit_background_layers:
+            background_data = z['background_data']
+            background_links = z['background_links']
+
+            background_data = torch.from_numpy(background_data).to(device=device)
+            grid.background_nlayers = background_data.shape[1]
+            grid.background_reso = background_links.shape[1]
+            grid.background_data = torch.nn.Parameter(background_data)
+            grid.background_links = torch.from_numpy(background_links).to(device=device)
 
     grid.accelerate()
 
@@ -686,6 +701,8 @@ while True:
             lr_basis = lr_basis_func(gstep_id - args.lr_basis_begin_step) * lr_basis_factor
             lr_sigma_bg = lr_sigma_bg_func(gstep_id - args.lr_basis_begin_step) * lr_basis_factor
             lr_color_bg = lr_color_bg_func(gstep_id - args.lr_basis_begin_step) * lr_basis_factor
+            # lr_sigma_bg = args.lr_sigma_bg
+            # lr_color_bg = args.lr_color_bg
             if not args.lr_decay:
                 lr_sigma = args.lr_sigma * lr_sigma_factor
                 lr_alpha = args.lr_alpha
@@ -837,6 +854,7 @@ while True:
 
                 # assert not torch.isnan(grid.surface_data.grad).any()
 
+
             # Stats
             mse_num : float = mse.detach().item()
             psnr = -10.0 * math.log10(mse_num)
@@ -868,6 +886,9 @@ while True:
                     if grid.surface_data is not None:
                         summary_writer.add_scalar("max_surface", grid.surface_data.max().cpu().detach().numpy(), global_step=gstep_id)
                         summary_writer.add_scalar("min_surface", grid.surface_data.min().cpu().detach().numpy(), global_step=gstep_id)
+                        summary_writer.add_scalar("max_surface_grad", grid.surface_data.grad.max().cpu().detach().numpy(), global_step=gstep_id)
+                        summary_writer.add_scalar("min_surface_grad", grid.surface_data.grad.min().cpu().detach().numpy(), global_step=gstep_id)
+                        summary_writer.add_scalar("mean_surface_grad", torch.abs(grid.surface_data.grad).mean().cpu().detach().numpy(), global_step=gstep_id)
                 if torch.is_tensor(grid.fake_sample_std):
                     summary_writer.add_scalar("fake_sample_std", grid.fake_sample_std.item(), global_step=gstep_id)
                 if grid.fake_sample_std is not None:
@@ -908,6 +929,13 @@ while True:
             #      with open(os.path.join(args.train_dir, 'grad_sparsity.txt'), 'a') as sparsity_file:
             #          sparsity_file.write(f"{gstep_id} {nz}\n")
 
+            if args.surf_grad_abs_max is not None:
+                # apply gradient clipping on surface gradient from rendering loss
+                thresh = np.abs(args.surf_grad_abs_max)
+                grid.surface_data.grad = torch.clamp_(grid.surface_data.grad, -thresh, thresh)
+
+                assert torch.abs(grid.surface_data.grad).max() <= thresh
+
             # Apply TV/Sparsity regularizers
             if (grid.surface_data is None or no_surface):
                 # TV on sigma
@@ -935,6 +963,8 @@ while True:
                             sparse_frac=args.tv_surface_sparsity,
                             ndc_coeffs=dset.ndc_coeffs,
                             contiguous=args.tv_contiguous,
+                            ignore_edge= not args.surf_tv_use_edge,
+                            edge_value=args.surf_tv_edge_value,
                             alpha_dependency=args.surf_tv_alpha_dependency)
 
                 if lambda_surf_normal_loss_l1 > 0.0 and not args.fused_surf_norm_reg:
@@ -1097,10 +1127,10 @@ while True:
                     if gstep_id < args.surface_init_freeze + args.no_surface_init_iters:
                         grid.surface_data.grad[:] = 0.
                     else:
-                        if args.surf_grad_abs_max is not None:
-                            # apply gradient clipping
-                            thresh = np.abs(args.surf_grad_abs_max)
-                            torch.clamp_(grid.surface_data.grad, -thresh, thresh)
+                        # if args.surf_grad_abs_max is not None:
+                        #     # apply gradient clipping
+                        #     thresh = np.abs(args.surf_grad_abs_max)
+                        #     torch.clamp_(grid.surface_data.grad, -thresh, thresh)
                         grid.optim_surface_step(lr_surface, beta=args.rms_beta, optim=args.surface_optim)
 
                     if args.trainable_fake_sample_std:

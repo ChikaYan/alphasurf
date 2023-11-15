@@ -39,6 +39,11 @@ def main():
 
     print(args)
 
+    zoom_factor = 0.3
+
+    if 'cup_yellow_circle' in args.input_path or 'half_cup_circle' in args.input_path or 'half_cup_circle_black' in args.input_path:
+        zoom_factor = 1.
+
     # if Path(args.out_dir).exists():
     #     shutil.rmtree(args.out_dir)
 
@@ -103,12 +108,12 @@ def main():
             p.camera.position = t
             p.camera.focal = focal_point
             p.camera.up = up
-            p.show(screenshot=f'{args.out_dir}/{i:05d}.png', auto_close=False, zoom=args.zoom_factor)
+            p.show(screenshot=f'{args.out_dir}/{i:05d}.png', auto_close=False, zoom=zoom_factor)
         else:
             cpos = (t, focal_point, up)
             obj.plot(color='white', cpos=cpos, 
                     screenshot=f'{args.out_dir}/{i:05d}.png', off_screen=True, eye_dome_lighting=True,
-                    point_size=2, show_axes=False, background=background, window_size=img_size, zoom=args.zoom_factor,
+                    point_size=4, show_axes=False, background=background, window_size=img_size, zoom=zoom_factor,
                     notebook=False,
                     )
 

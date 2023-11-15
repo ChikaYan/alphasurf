@@ -43,13 +43,22 @@ mask = (obj.points < 1.5).all(axis=-1) & (obj.points > -1.5).all(axis=-1)
 #     mask = mask & (~filter_mask)
 
 if args.mask_crop:
-    # # for wine
-    filter_mask = ((obj.points > np.array([[0., -100, -100]])).all(axis=-1)) | ((obj.points < np.array([[100, 0., 100.]])).all(axis=-1))
-    mask = mask & (filter_mask)
+    # # # for wine
+    # filter_mask = ((obj.points > np.array([[0., -100, -100]])).all(axis=-1)) | ((obj.points < np.array([[100, 0., 100.]])).all(axis=-1))
+    # mask = mask & (filter_mask)
 
-    # for bulldozer2
-    filter_mask = (obj.points > np.array([[-100, -0.15, -1.]])).all(axis=-1)
-    mask = mask & (filter_mask)
+    # # for bulldozer2
+    # filter_mask = (obj.points > np.array([[-100, -0.15, -1.]])).all(axis=-1)
+    # mask = mask & (filter_mask)
+    if 'ficus' in args.input_path:
+        filter_mask = (obj.points > np.array([[-0., -999, -999]])).all(axis=-1) | (obj.points > np.array([[-999., -999, -0.5]])).all(axis=-1)
+        mask = mask & (filter_mask)
+    if 'lyre' in args.input_path:
+        filter_mask = (obj.points > np.array([[-999., -999, 0.]])).all(axis=-1)
+        mask = mask & (filter_mask)
+    if 'monkey' in args.input_path:
+        filter_mask = (obj.points < np.array([[999, 0.2, 999]])).all(axis=-1)
+        mask = mask & (filter_mask)
 
 if 'ship_bottle' in args.input_path:
     filter_mask = (obj.points > np.array([[-0.1, -999, -999]])).all(axis=-1)
@@ -60,6 +69,7 @@ elif 'chest' in args.input_path:
 elif 'monkey' in args.input_path:
     filter_mask = (obj.points < np.array([[999, 0.2, 999]])).all(axis=-1) |  (obj.points < np.array([[100, 100., -0.2]])).all(axis=-1)
     mask = mask & (filter_mask)
+    pass
 elif '/pot_burger/' in args.input_path:
     filter_mask = (obj.points > np.array([[-999, -0.3, -999]])).all(axis=-1)
     mask = mask & (filter_mask)
@@ -93,13 +103,13 @@ if args.crop_vid:
         if not args.no_color:
             obj.plot(scalars='RGB', rgb=True, cpos=cpos, 
                     screenshot=f'{args.out_dir}/{i:05d}.png', off_screen=True, eye_dome_lighting=True,
-                    point_size=1, show_axes=False, background=background, window_size=img_size, zoom=0.75,
+                    point_size=2, show_axes=False, background=background, window_size=img_size, zoom=0.75,
                     notebook=False,
                     )
         else:
             obj.plot(color='white', cpos=cpos, 
                     screenshot=f'{args.out_dir}/{i:05d}.png', off_screen=True, eye_dome_lighting=True,
-                    point_size=1, show_axes=False, background=background, window_size=img_size, zoom=0.75,
+                    point_size=2, show_axes=False, background=background, window_size=img_size, zoom=0.75,
                     notebook=False,
                     )
 

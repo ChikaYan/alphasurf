@@ -26,7 +26,13 @@ argv = argv[argv.index("--") + 1:]
 scene_name = argv[0]
 out_path = f'/rds/project/rds-qxpdOeYWi78/plenoxels/data/nerf_synthetic/{scene_name}/test/'
 
+
+if len(argv) > 1:
+    RESOLUTION = int(argv[1])
+    out_path = f'/rds/project/rds-qxpdOeYWi78/plenoxels/data/nerf_synthetic/{scene_name}_{RESOLUTION}/test/'
+
 fp = bpy.path.abspath(out_path)
+print(out_path)
 
 
 def listify_matrix(matrix):

@@ -816,6 +816,7 @@ __global__ void surf_tv_grad_sparse_kernel(
         float scale,
         size_t Q,
         bool ignore_edge,
+        float edge_value,
         bool ignore_last_z,
         float ndc_coeffx, float ndc_coeffy,
         bool alpha_dependency,
@@ -848,8 +849,8 @@ __global__ void surf_tv_grad_sparse_kernel(
     const auto lnk100 = x + 1 < links.size(0) ? links_ptr[offx] : 0;
     if (ignore_last_z && z == links.size(2) - 2) return;
 
-    const float v000 = lnk000 >= 0 ? data[lnk000][idx] : 0.f;
-    const float null_val = (ignore_edge ? v000 : 0.f);
+    const float v000 = lnk000 >= 0 ? data[lnk000][idx] : edge_value;
+    const float null_val = (ignore_edge ? v000 : edge_value);
     const float v001 = lnk001 >= 0 ? data[lnk001][idx] : null_val,
                 v010 = lnk010 >= 0 ? data[lnk010][idx] : null_val,
                 v100 = lnk100 >= 0 ? data[lnk100][idx] : null_val;
@@ -1379,6 +1380,7 @@ void surf_tv_grad_sparse(torch::Tensor links,
              int start_dim, int end_dim,
              float scale,
              bool ignore_edge,
+             float edge_value,
              bool ignore_last_z,
              float ndc_coeffx,
              float ndc_coeffy,
@@ -1414,6 +1416,7 @@ void surf_tv_grad_sparse(torch::Tensor links,
             scale / nl,
             Q,
             ignore_edge,
+            edge_value,
             ignore_last_z,
             ndc_coeffx, ndc_coeffy,
             alpha_dependency,
