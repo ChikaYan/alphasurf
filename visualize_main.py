@@ -167,18 +167,25 @@ def make_plot(scenes, methods, transpose=False,
             if scene in special_group and method in special_group_replace:
                 imgs_path = special_group_replace[method]
 
+            if scene == 'monkey' and method != 'RGB':
+                if method == 'GT':
+                    imgs_path = str(Path(imgs_path).parent / 'imgs_gt_test')
+                else:
+                    imgs_path = str(Path(imgs_path).parent / 'imgs_no_crop')
+
 
             # put in level set values for Plenoxels and MipNeRF360
             if method == 'Plenoxels':
                 if scene in SCENE_CATEGORY[0]:
-                    imgs_path = imgs_path.replace('[LV_VALUE]', '70')
+                    imgs_path = imgs_path.replace('[LV_VALUE]', '90')
                 if scene in SCENE_CATEGORY[1]:
                     imgs_path = imgs_path.replace('[LV_VALUE]', '90')
                 if scene in SCENE_CATEGORY[2]:
                     imgs_path = imgs_path.replace('[LV_VALUE]', '30')
             elif method == 'MipNeRF360':
                 if scene in SCENE_CATEGORY[0]:
-                    imgs_path = imgs_path.replace('[LV_VALUE]', '30')
+                    # imgs_path = imgs_path.replace('[LV_VALUE]', '30')
+                    imgs_path = imgs_path.replace('[LV_VALUE]', '50')
                 if scene in SCENE_CATEGORY[1]:
                     imgs_path = imgs_path.replace('[LV_VALUE]', '50')
                 if scene in SCENE_CATEGORY[2]:
@@ -264,8 +271,8 @@ methods = {
     'GT': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/syn/ckpt_eval_cuvol/depth_spiral_mode_0.1/remeshed/imgs_gt_test',
     'NeuS': '/rds/project/rds-qxpdOeYWi78/NeuS/exp/{}/womask/fine_mesh/imgs_pt_test',
     'HFS': '/rds/project/rds-qxpdOeYWi78/HFS/exps_1.5/{}/womask_hfs/fine_mesh/imgs_pt_test',
-    # r'MipNeRF360 ($\sigma=50$)': '/rds/project/rds-qxpdOeYWi78/multinerf/results/blender/{}/pts/lv_50_pts/imgs_pt_test',
-    # r'Plenoxels ($\sigma=50$)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/syn/ckpt_eval_cuvol/thresh_50/ckpt/imgs_pt_test',
+    'neuralangelo': '/rds/project/rds-qxpdOeYWi78/neuralangelo/logs/syn/{}/imgs_pt_test',
+    'NeRRF': '/rds/project/rds-qxpdOeYWi78/NeRRF/eval_log/{}/imgs_pt_test',
     'MipNeRF360': '/rds/project/rds-qxpdOeYWi78/multinerf/results/blender/{}/pts/lv_[LV_VALUE]_pts/imgs_pt_test',
     'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/syn/ckpt_eval_cuvol/thresh_[LV_VALUE]/ckpt/imgs_pt_test',
     # 'Ours (Conv Lv)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/good_trunc/solid_less_trunc_converge_lv/ckpt_eval_surf_masked/ckpt/imgs_pt',
@@ -278,10 +285,12 @@ scenes = {
     # "stair": 12,
     "bee": 30,
     # "dinning_table": 168,
-    "kitchen_table": 30,
+    # "kitchen_table": 30,
+    "coffe_table": 30,
     # "well": 66,
     # "monkey": 0,
-    "bottle_2": 174, #90, #66,
+    "monkey": 1,
+    # "bottle_2": 174, #90, #66,
     # "leaf_vase": 48,
     
     # "lego_re": 14, 
@@ -348,6 +357,8 @@ scene_name_map = {
     'glasses2': 'glasses',
     'lego_transparent': 'lego t',
     'bottle_2': 'bottle',
+    'dinning_table': 'table',
+    'coffe_table': 'coffee',
 }
 
 special_group=["glass_table", "case", "bottle_2", "monkey", "coffe_table", "dinning_table", "kitchen_table", "leaf_vase"]
@@ -367,10 +378,10 @@ special_group_replace={
 fig,axes = make_plot(scenes, methods, transpose=False,
                      special_index=special_index, scene_name_map=scene_name_map,
                      special_group=special_group, special_group_replace=special_group_replace,
-                     fontsize=25, spacing=0.02, img_size=(800, 800), subplot_size=(5, 5))
+                     fontsize=45, spacing=0.02, img_size=(800, 800), subplot_size=(5, 5), verbose=True)
 
 out_path = 'paper/main_syn.pdf'
-out_path = 'paper/main_syn.png'
+# out_path = 'paper/main_syn.png'
 fig.savefig(out_path, facecolor='white', bbox_inches='tight', dpi=60)
 
 print(f"Saved to {out_path}")

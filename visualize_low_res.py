@@ -296,7 +296,7 @@ scene_name_map = {
 
 fig,axes = make_plot(scenes, methods, transpose=True,
                      special_index=special_index, scene_name_map=scene_name_map, special_group=special_group, special_group_replace=special_group_replace,
-                     fontsize=25, spacing=0.02, verbose=False, subplot_size=(5,2.7), img_size=(500, 250))
+                     fontsize=45, spacing=0.02, verbose=False, subplot_size=(5,2.7), img_size=(500, 250))
 
 # out_path = 'paper/low_res.png'
 out_path = 'paper/low_res.pdf'

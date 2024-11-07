@@ -280,8 +280,8 @@ methods = {
 
 scenes = {
     "ship_re": 0, 
-    "lego_re": 72, 
     "ficus": 72,
+    "lego_re": 72, 
     "drums": 0,
     "mic_re": 30,
     "materials": 54,
@@ -306,7 +306,7 @@ fig,axes = make_plot(scenes, methods, transpose=True,
                      fontsize=25, spacing=0.02, verbose=False)
 
 out_path = 'paper/nerf_synthetic.png'
-# out_path = 'paper/nerf_synthetic.pdf'
+out_path = 'paper/nerf_synthetic.pdf'
 fig.savefig(out_path, facecolor='white', bbox_inches='tight', dpi=60)
 
 print(f"Saved to {out_path}")

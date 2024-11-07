@@ -54,7 +54,7 @@ if args.mask_crop:
         filter_mask = (obj.points > np.array([[-0., -999, -999]])).all(axis=-1) | (obj.points > np.array([[-999., -999, -0.5]])).all(axis=-1)
         mask = mask & (filter_mask)
     if 'lyre' in args.input_path:
-        filter_mask = (obj.points > np.array([[-999., -999, 0.]])).all(axis=-1)
+        filter_mask = (obj.points < np.array([[999., 999, 0.]])).all(axis=-1)
         mask = mask & (filter_mask)
     if 'monkey' in args.input_path:
         filter_mask = (obj.points < np.array([[999, 0.2, 999]])).all(axis=-1)
@@ -67,8 +67,8 @@ elif 'chest' in args.input_path:
     filter_mask = (obj.points > np.array([[-999, -0.15, -999]])).all(axis=-1) |  (obj.points < np.array([[100, 100., 0.]])).all(axis=-1)
     mask = mask & (filter_mask)
 elif 'monkey' in args.input_path:
-    filter_mask = (obj.points < np.array([[999, 0.2, 999]])).all(axis=-1) |  (obj.points < np.array([[100, 100., -0.2]])).all(axis=-1)
-    mask = mask & (filter_mask)
+    # filter_mask = (obj.points < np.array([[999, 0.2, 999]])).all(axis=-1) |  (obj.points < np.array([[100, 100., -0.2]])).all(axis=-1)
+    # mask = mask & (filter_mask)
     pass
 elif '/pot_burger/' in args.input_path:
     filter_mask = (obj.points > np.array([[-999, -0.3, -999]])).all(axis=-1)

@@ -1,0 +1,52 @@
+find . -type f -name '*.obj' -delete
+
+find . -type f -name '*.npz' -delete
+
+find . -type f -name '*.ply' -delete
+
+find . -type f -name '*_depth.mp4' -delete
+
+find . -type f -name '*.npy' -delete
+
+
+
+find . -type f -name 'events.out.tfevents.*' -delete
+
+
+
+find . -type f -name 's2d.ply' -delete
+
+
+
+checkpoint_98000
+
+du -shc */
+
+
+1.1G    bulb/
+1.4M    coffee/
+4.3M    crystal/
+176M    dice/
+48G     drums/
+67M     dtu_scan105/
+15M     dtu_scan110/
+227M    dtu_scan37/
+500M    dtu_scan40/
+3.1G    dtu_scan63/
+466M    dtu_scan65/
+221M    dtu_scan69/
+47M     dtu_scan83/
+347G    ficus/
+3.9M    ficus_transparent/
+1.6G    glasses/
+427G    hotdog_re/
+436K    leave_mlv/
+988G    lego_re/
+16G     lego_transparent/
+14M     lotus/
+19G     lyre/
+681M    maple/
+36G     materials/
+608G    ship_re/
+78G     vase/
+2.6T    total

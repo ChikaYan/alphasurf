@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 from copy import deepcopy
 
-ROOT_PATH = 'opt/configs/auto_tune/dtu_less_trunc_norm/'
+ROOT_PATH = 'opt/configs/auto_tune/llff_bg_less_trunc_zero_lv/'
 root_dir = Path(ROOT_PATH)
 root_dir.mkdir(parents=True, exist_ok=True)
 

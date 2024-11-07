@@ -171,20 +171,40 @@ def make_plot(scenes, methods, transpose=False,
             if scene in special_group and method in special_group_replace:
                 imgs_path = special_group_replace[method]
 
+            
+
             kwargs = {}
 #             kwargs = {'zoom': 1.25}
             if scene == 'lyre':
-                kwargs['patch'] = ((110, 310), (80, 80))
+                kwargs['patch'] = ((70, 340), (80, 80))
                 kwargs['patch_zoom'] = 2.5
                 kwargs['patch_loc'] = 'ur'
             elif scene == 'ficus':
                 kwargs['patch'] = ((210, 360), (100, 100))
                 kwargs['patch_zoom'] = 1.5
                 kwargs['patch_loc'] = 'br'
+            elif scene == 'ship_re':
+                kwargs['patch'] = ((130, 320), (80, 80))
+                kwargs['patch_zoom'] = 2
+                kwargs['patch_loc'] = 'br'
             elif scene == 'dinning_table':
                 kwargs['patch'] = ((80, 80), (100, 100))
                 kwargs['patch_zoom'] = 1.5
                 kwargs['patch_loc'] = 'bl'
+            elif scene == 'monkey':
+                if method == 'Ours':
+                    imgs_path = imgs_path.replace('imgs_pt', 'imgs_no_crop')
+
+                elif method not in ['Ours', 'GT']:
+                    imgs_path = imgs_path.replace('imgs_pt', 'imgs_pt_test')
+
+                # kwargs['patch'] = ((150, 130), (100, 100))
+                # kwargs['patch_zoom'] = 1.5
+                # kwargs['patch_loc'] = 'br'
+
+                # kwargs['patch'] = ((80, 80), (100, 100))
+                # kwargs['patch_zoom'] = 1.5
+                # kwargs['patch_loc'] = 'bl'
                 
 #                 kwargs['zoom'] = 1.75
 
@@ -265,26 +285,43 @@ def make_plot(scenes, methods, transpose=False,
 
 
 methods = {
+    # # 'RGB': '/rds/project/rds-qxpdOeYWi78/plenoxels/data/nerf_synthetic/{}/demo',
+    # 'GT': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/syn/ckpt_eval_cuvol/depth_spiral_mode_0.1/remeshed/imgs_gt_pt',
+    # # r'Ours (w/o $\mathcal{L}_\delta$)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/no_tv/ckpt_eval_surf_masked/ckpt/imgs_pt',
+    # r'w/o $\mathcal{L}_\delta$': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/no_tv/ckpt_eval_surf_masked/ckpt/imgs_pt',
+    # r'w/o $\mathcal{L}_\delta$, $\mathcal{L}_{\mathbf{n}_1}$, $\mathcal{L}_{\mathbf{n}_2}$': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/no_tv_no_norm/ckpt_eval_surf_masked/ckpt/imgs_pt',
+    # 'w/o truncate': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/no_trunc/ckpt_eval_surf_masked/ckpt/imgs_pt',
+    # r'w/o $\mathcal{L}_c$': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/no_conv/ckpt_eval_surf_masked/ckpt/imgs_pt',
+    # r'$\mathbf{\tau}_\sigma = \{10\}$': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/single_lv/ckpt_eval_surf_masked/ckpt/imgs_pt',
+    # 'w/o reg': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/no_reg/ckpt_eval_surf_masked/ckpt/imgs_pt',
+
+
+    # 'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/good_trunc/solid_less_trunc/ckpt_eval_surf_masked/ckpt/imgs_pt',
+
     # 'RGB': '/rds/project/rds-qxpdOeYWi78/plenoxels/data/nerf_synthetic/{}/demo',
-    'GT': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/syn/ckpt_eval_cuvol/depth_spiral_mode_0.1/remeshed/imgs_gt_pt',
+    # 'GT': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/syn/ckpt_eval_cuvol/depth_spiral_mode_0.1/remeshed/imgs_gt_test',
+    'GT': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/syn/ckpt_eval_cuvol/thresh_10/ckpt/imgs_gt_test',
     # r'Ours (w/o $\mathcal{L}_\delta$)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/no_tv/ckpt_eval_surf_masked/ckpt/imgs_pt',
-    r'w/o $\mathcal{L}_\delta$': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/no_tv/ckpt_eval_surf_masked/ckpt/imgs_pt',
-    r'w/o $\mathcal{L}_\delta$, $\mathcal{L}_{\mathbf{n}_1}$, $\mathcal{L}_{\mathbf{n}_2}$': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/no_tv_no_norm/ckpt_eval_surf_masked/ckpt/imgs_pt',
-    'w/o truncate': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/no_trunc/ckpt_eval_surf_masked/ckpt/imgs_pt',
-    r'w/o $\mathcal{L}_c$': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/no_conv/ckpt_eval_surf_masked/ckpt/imgs_pt',
-    r'$\mathbf{\tau}_\sigma = \{10\}$': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/single_lv/ckpt_eval_surf_masked/ckpt/imgs_pt',
+    r'w/o $\mathcal{L}_\delta$': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/no_tv/ckpt_eval_surf_masked/ckpt/imgs_pt_test',
+    r'w/o $\mathcal{L}_\delta$, $\mathcal{L}_{\mathbf{n}_1}$, $\mathcal{L}_{\mathbf{n}_2}$': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/no_tv_no_norm/ckpt_eval_surf_masked/ckpt/imgs_pt_test',
+    'w/o truncate': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/no_trunc/ckpt_eval_surf_masked/ckpt/imgs_pt_test',
+    r'w/o $\mathcal{L}_c$': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/no_conv/ckpt_eval_surf_masked/ckpt/imgs_pt_test',
+    r'$\mathbf{\tau}_\sigma = \{10\}$': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/single_lv/ckpt_eval_surf_masked/ckpt/imgs_pt_test',
+    # 'w/o reg': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_less_trunc/no_reg/ckpt_eval_surf_masked/ckpt/imgs_pt_test',
 
 
-    'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/good_trunc/solid_less_trunc/ckpt_eval_surf_masked/ckpt/imgs_pt',
+    'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/good_trunc/solid_less_trunc/ckpt_eval_surf_masked/ckpt/imgs_pt_test',
 
 }
 
 scenes = {
-    "ficus": 3, 
+    "ship_re": 0, 
+    "ficus": 12, 
     # "lego_re": 15, 
-    "lyre": 16,
+    # "lyre": 48,
     # "case": 36,
     "dinning_table": 168,
+    "monkey": 1,
     # "stair": 11,
     # "bee": 11,
     # "glass_table": 11,
@@ -310,7 +347,7 @@ scene_name_map = {
 }
 
 
-special_group=["case", "dinning_table"]
+special_group=["case", "dinning_table", "monkey"]
 
 special_group_replace={
     'GT': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/syn/ckpt_eval_cuvol/thresh_10/ckpt/imgs_gt_test',
@@ -319,6 +356,7 @@ special_group_replace={
     'w/o truncate': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_new_trans_low_tv/no_trunc/ckpt_eval_surf_masked/ckpt/imgs_pt',
     r'w/o $\mathcal{L}_c$': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_new_trans_low_tv/no_conv/ckpt_eval_surf_masked/ckpt/imgs_pt',
     r'$\mathbf{\tau}_\sigma = \{10\}$': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_new_trans_low_tv/single_lv/ckpt_eval_surf_masked/ckpt/imgs_pt',
+    'w/o reg': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/abla_new_trans_low_tv/no_reg/ckpt_eval_surf_masked/ckpt/imgs_pt',
 
 
     'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/norm_l12/norm_l12_decay_9_low_tv_2/ckpt_eval_surf_masked/ckpt/imgs_pt',
@@ -327,7 +365,7 @@ special_group_replace={
 fig,axes = make_plot(scenes, methods, transpose=False,
                      special_index=special_index, scene_name_map=scene_name_map,
                      special_group=special_group, special_group_replace=special_group_replace,
-                     fontsize=35, spacing=0.02, verbose=False)
+                     fontsize=45, spacing=0.02, verbose=True)
 
 
 out_path = 'paper/abla.pdf'

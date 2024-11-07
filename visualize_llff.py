@@ -36,7 +36,7 @@ class ImageSet:
         self.patch_loc = patch_loc
         self.take_patch = take_patch
         
-    def draw_box(self, img, left, right, top, bottom, line_width=10, line_color=(1,0,0)):
+    def draw_box(self, img, left, right, top, bottom, line_width=5, line_color=(1,0,0)):
         patch = np.copy(img[top+line_width:bottom-line_width, left+line_width: right-line_width,:])
         img[top:bottom, left: right,:] = np.array(line_color)
         img[top+line_width:bottom-line_width, left+line_width: right-line_width,:] = patch
@@ -87,10 +87,10 @@ class ImageSet:
         if self.img_size is not None:
             height, width = im.shape[:2]
             new_width, new_height = self.img_size
-            left = (width - new_width)//2
-            top = (height - new_height)//2
-            right = (width + new_width)//2
-            bottom = (height + new_height)//2
+            left = max((width - new_width)//2, 0)
+            top = max((height - new_height)//2,0)
+            right = min((width + new_width)//2, width)
+            bottom = min((height + new_height)//2, height)
             im = im[top:bottom, left:right, :]
 
         if self.take_patch is not None:
@@ -140,7 +140,7 @@ class ImageSet:
     
 def make_plot(scenes, methods, transpose=False,
               special_group=[], special_group_replace={}, special_index={}, scene_name_map={},
-              subplot_size=(5, 3.2), fontsize=16, spacing=0.1, img_size=(500,500), verbose=False):
+              subplot_size=(5, 3.2), fontsize=16, spacing=0.1, img_size=(1000,1000), verbose=False):
     
     nrow = len(scenes)
     ncols = len(methods)
@@ -161,47 +161,133 @@ def make_plot(scenes, methods, transpose=False,
 
             imgs_path = methods[method]
 
-            if scene in special_group and method in special_group_replace:
-                imgs_path = special_group_replace[method]
+            if scene.replace('.','') in special_group_replace:
+                replace = special_group_replace[scene.replace('.','')]
+                if method in replace:
+                    imgs_path = replace[method]
 
-            kwargs = {}
-#             kwargs = {'zoom': 1.5}
+            img_idx = scenes[scene]
+            if method in special_index and scene in special_index[method]:
+                img_idx = special_index[method][scene]
 
-            # if scene in ['trex', 'fern', 'orchids']:
-            #     kwargs['zoom'] = 1.5
-            #     if method == 'RGB':
-            #         kwargs['zoom'] = 0.175
-            
-            # if scene in ['orchids']:
-            #     kwargs['zoom'] = 0.8
-            #     if method == 'RGB':
-            #         kwargs['zoom'] = 0.175
-            
 
-            
-            # if scene in ['glass_cup', 'rough', 'flower_thin', 'plastic']:
-            kwargs['zoom'] = 1.2
+            # if scene == 'cup_yellow_circle.':
+            #     print()
+
+            # scene = scene.replace('.','')
+
+
+            kwargs = {}            
+            kwargs['zoom'] = 1.5
             if method == 'RGB':
-                kwargs['zoom'] = 0.17
+                kwargs['zoom'] *= 0.25
 
             if scene == 'glass_cup':
-                kwargs['take_patch'] = ((140, 140), (300, 300))
+                # kwargs['take_patch'] = np.array(((140, 140), (300, 300)))
+                if method == 'RGB':
+                    kwargs['take_patch'] = ((280, 300), (600, 600))
+                else:
+                    kwargs['take_patch'] = ((370, 370), (400, 330))
+                pass
             elif scene == 'rough':
                 kwargs['take_patch'] = ((140, 140), (250, 250))
+            elif scene.replace('.','') == 'cup_yellow_circle':
+                if img_idx == 0:
+                    if method == 'RGB':
+                        kwargs['take_patch'] = ((350, 120), (500, 500))
+                    else:
+                        kwargs['take_patch'] = ((390, 380), (320, 150))
+                elif img_idx == 99:
+                    pass
+                    if method == 'RGB':
+                        kwargs['take_patch'] = ((250, 280), (350, 400))
+                    else:
+                        kwargs['take_patch'] = ((0, 320), (650, 300))
+                        # kwargs['take_patch'] = ((180, 130), (270, 140))
+            elif scene.replace('.','') == 'cup_dark_circle':
+                if img_idx == 47:
+                    if method == 'RGB':
+                        kwargs['take_patch'] = ((340, 100), (450, 500))
+                    else:
+                        kwargs['take_patch'] = ((0, 100), (800, 600))
+                        
+            elif scene.replace('.','') == 'flower_thin':
+                if img_idx == 5:
+                    if method == 'RGB':
+                        pass
+                    else:
+                        kwargs['patch'] = ((300, 510), (130, 130))
+                        kwargs['patch_zoom'] = 2.5
+                        kwargs['patch_loc'] = 'bl'
+            #### old size ones ###
+            # elif scene.replace('.','') == 'floss':
+            #     if img_idx == 10:
+            #         if method == 'RGB':
+            #             kwargs['take_patch'] = ((310, 150), (250, 400))
+            #         else:
+            #             kwargs['take_patch'] = ((150, 100), (400, 500))
+            #             kwargs['patch'] = ((350, 400), (150, 150))
+            #             kwargs['patch_zoom'] = 2
+            #             kwargs['patch_loc'] = 'ur'
+            # elif scene.replace('.','') == 'floss_small':
+            #     if img_idx == 11:
+            #         if method == 'RGB':
+            #             kwargs['take_patch'] = ((250, 350), (250, 300))
+            #         else:
+            #             kwargs['take_patch'] = ((150, 250), (400, 400))
+            #             # kwargs['patch'] = ((350, 400), (150, 150))
+            #             # kwargs['patch_zoom'] = 2
+            #             # kwargs['patch_loc'] = 'ur'
+            elif scene.replace('.','') == 'floss':
+                if img_idx == 10:
+                    if method == 'RGB':
+                        kwargs['take_patch'] = ((310, 150), (250, 400))
+                    else:
+                        kwargs['take_patch'] = ((150, 100), (400, 500))
+                        kwargs['patch'] = ((350, 400), (150, 150))
+                        kwargs['patch_zoom'] = 2
+                        kwargs['patch_loc'] = 'ur'
+            elif scene.replace('.','') == 'floss_small':
+                if img_idx == 10:
+                    if method == 'RGB':
+                        kwargs['take_patch'] = ((250, 200), (250, 300))
+                    else:
+                        kwargs['take_patch'] = ((0, 50), (500, 450))
+                if img_idx == 9:
+                    if method == 'RGB':
+                        kwargs['take_patch'] = ((300, 120), (250, 350))
+                    else:
+                        kwargs['take_patch'] = ((100, 40), (500, 450))
+                        # kwargs['patch'] = ((350, 400), (150, 150))
+                        # kwargs['patch_zoom'] = 2
+                        # kwargs['patch_loc'] = 'ur'
+            elif scene.replace('.','') == 'rabit':
+                if method == 'RGB':
+                    kwargs['take_patch'] = ((300, 200), (500, 500))
+                else:
+                    kwargs['take_patch'] = ((300, 350), (500, 240))
+            elif scene.replace('.','') == 'heart':
+                # if method == 'RGB':
+                #     kwargs['take_patch'] = ((350, 480), (230, 230))
+                # else:
+                #     kwargs['take_patch'] = ((350, 450), (250, 250))
+
+                if method == 'RGB':
+                    kwargs['take_patch'] = ((350, 480), (230, 230))
+                else:
+                    kwargs['take_patch'] = ((360, 480), (200, 200))
+
 
                 
             
             image_set = ImageSet(
-                imgs_path.format(scene), 
+                imgs_path.format(scene.replace('.','')), 
                 verbose=verbose, 
                 # img_name_pattern = 'r_{}.png' if method=='RGB' else '{:05d}.png', 
                 img_size=img_size, 
                 img_ext='*',
                 **kwargs)
 
-            img_idx = scenes[scene]
-            if method in special_index and scene in special_index[method]:
-                img_idx = special_index[method][scene]
 
             if transpose:
                 ax = axes[j, i]
@@ -222,9 +308,12 @@ def make_plot(scenes, methods, transpose=False,
             # remove ticks and labels for the left axis
             ax.tick_params(left=False, bottom=False, labelbottom=False, labelleft=False)
 
+
+            scene_name = scene.replace('.', '')
+
             if not transpose:
                 if j == 0:
-                    scene_name = scene_name_map[scene] if scene in scene_name_map else scene
+                    scene_name = scene_name_map[scene_name] if scene_name in scene_name_map else scene_name
                     # scene_name.replace(scene_name[0], scene_name[0].upper(), 1)
                     ax.set_ylabel(scene_name, fontsize=fontsize)
                     
@@ -232,7 +321,7 @@ def make_plot(scenes, methods, transpose=False,
                     ax.set_xlabel(method, fontsize=fontsize)
             else:
                 if j == 0:
-                    scene_name = scene_name_map[scene] if scene in scene_name_map else scene
+                    scene_name = scene_name_map[scene] if scene_name in scene_name_map else scene_name
                     # scene_name.replace(scene_name[0], scene_name[0].upper(), 1)
                     ax.set_title(scene_name, fontsize=fontsize)
                     
@@ -246,14 +335,22 @@ def make_plot(scenes, methods, transpose=False,
 methods = {
     'RGB': '/rds/project/rds-qxpdOeYWi78/plenoxels/data/real/{}/images',
     'NeuS': '/rds/project/rds-qxpdOeYWi78/NeuS/exp/{}/womask/fine_mesh/imgs_pt_train',
+    'GeoNeuS': '/rds/project/rds-qxpdOeYWi78/Geo-Neus/exp/{}/womask_bg/fine_mesh/imgs_pt_train',
     'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
-    # 'Plenoxels (low tv)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_low_tv_2/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
-    # 'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv/fast_l12_norm_dilate_4/ckpt_eval_surf_masked/imgs_pt_train',
     'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv/mid_2_l12_norm_dilate_4/ckpt_eval_surf_masked/imgs_pt_train',
-    # r'Plenoxels ($\sigma=50$)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff/ckpt_eval_cuvol/thresh_50/imgs_pt_train',
-    # r'Plenoxels ($\sigma=10$)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
+    
+    # 'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv/fast_l12_norm_dilate_4/ckpt_eval_surf_masked/imgs_pt_train',
+    # 'Plenoxels (low tv)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_low_tv_2/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
     # r'Plenoxels No Bg ($\sigma=10$)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_no_bg/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
     
+    # 'l2_norm_no_sparse_d16_less_trunc_tv_7_zero_lv_no_tv_ful': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d16_less_trunc_tv_7_zero_lv_no_tv_ful/ckpt_eval_surf_masked/imgs_pt_train',
+    # 'l2_norm_no_sparse_d16_less_trunc_tv_12_zero_lv_no_tv_2': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d16_less_trunc_tv_12_zero_lv_no_tv_2/ckpt_eval_surf_masked/imgs_pt_train',
+    # 'l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_2': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_2/ckpt_eval_surf_masked/imgs_pt_train',
+    # 'l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n/ckpt_eval_surf_masked/imgs_pt_train',
+    # 'l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_3': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_3/ckpt_eval_surf_masked/imgs_pt_train',
+    # 'mid_l12_norm_dilate_4_mimic': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv/mid_l12_norm_dilate_4_mimic/ckpt_eval_surf_masked/imgs_pt_train',
+    # 'mid_l12_norm_dilate_4_mimic_2': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv/mid_l12_norm_dilate_4_mimic_2/ckpt_eval_surf_masked/imgs_pt_train',
+    # 'bg/mid_2_l12_norm_dilate_4_mimic': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/mid_2_l12_norm_dilate_4_mimic/ckpt_eval_surf_masked/imgs_pt_train',
 
 
     # 'l12_norm_dilate_4': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv/l12_norm_dilate_4/ckpt_eval_surf_masked/imgs_pt_train',
@@ -310,13 +407,49 @@ methods = {
     # 'fast_l12_norm_dilate_8_tv_edge': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv/fast_l12_norm_dilate_8_tv_edge/ckpt_eval_surf_masked/imgs_pt_train',
     # 'synllff_low_tv_2/fast_l12_norm_dilate_8': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv/synllff_low_tv_2/fast_l12_norm_dilate_8/ckpt_eval_surf_masked/imgs_pt_train',
     
+    # 'l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_no_norm_no_tv': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_no_norm_no_tv/ckpt_eval_surf_masked/imgs_pt_train',
+    # 'l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_no_norm': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_no_norm/ckpt_eval_surf_masked/imgs_pt_train',
+    # 'l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_less_norm': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_less_norm/ckpt_eval_surf_masked/imgs_pt_train',
+    
+    # 'l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv/ckpt_eval_surf_masked/imgs_pt_train',
+    # 'l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_2': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_2/ckpt_eval_surf_masked/imgs_pt_train',
+    # 'l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_3': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_3/ckpt_eval_surf_masked/imgs_pt_train',
+    # 'l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_4': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_4/ckpt_eval_surf_masked/imgs_pt_train',
+    # 'l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_5': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_5/ckpt_eval_surf_masked/imgs_pt_train',
+    # 'l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_6': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_5/ckpt_eval_surf_masked/imgs_pt_train',
+    
+
 }
 
 scenes = {
-#     "trex": 0,
-    # "flower_thin": 0,
-    "glass_cup": 5,
-    "rough": 6,
+    # "glass_cup": 5,
+    # # "rough": 6,
+    # # "cup_yellow_circle": 0, 
+
+    "floss_small": 9,
+    "cup_yellow_circle.": 99, 
+    # "cup_dark_circle": 47,
+    # "heart": 16,
+    "heart": 32,
+
+    # "flower_thin": 5,
+    # "flower_thin.": 23,
+    # "trex": 0,
+    # "floss": 10,
+    # "stand_rl": 0,
+    # "rabit": 0,
+    # "butterfly": 0,
+    # "toy_glass": 0,
+    # "hair": 0,
+    # "comb": 0,
+    # "frog": 0,
+    # "rabbit_2": 0,
+    # "butterfly_2": 0,
+    # "stand_2": 0,
+    # "rabbit_3": 0,
+
+
+
     # "half_cup" : 13,
     # "half_cup_2" : 12,
     # "bag": 10,
@@ -338,29 +471,81 @@ special_group = [
 ]
 
 special_group_replace = {
-#     r'Plenoxels ($\sigma=50$)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_low_tv/ckpt_eval_cuvol/thresh_50/imgs_pt_train',
-#     r'Plenoxels ($\sigma=10$)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_low_tv/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
-#     'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_low_tv/multi_lv_large_tv_fast_surf_2/ckpt_eval_surf_single/imgs_pt_train',
-#     'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_low_tv/multi_lv_large_tv_fast_surf_4/ckpt_eval_surf_masked/imgs_pt_train',
-    r'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_bg/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
-    'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/fast_l2_norm_surftv_no_sparse_d16_small_tv_3/ckpt_eval_surf_masked/imgs_pt_train',
+    'rough': {
+        r'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_bg/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
+        'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/fast_l2_norm_surftv_no_sparse_d16_small_tv_3/ckpt_eval_surf_masked/imgs_pt_train',
+    },
+    'cup_yellow_circle': {
+        r'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_bg/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
+        'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d16_less_trunc_tv_10_zero_lv/ckpt_eval_surf_masked/imgs_pt_train',
+    },
+    'cup_dark_circle': {
+        r'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_bg/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
+        'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv/ckpt_eval_surf_masked/imgs_pt_train',
+    },
+    'flower_thin': {
+        r'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_bg/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
+        'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_no_norm_no_tv/ckpt_eval_surf_masked/imgs_pt_train',
+    },
+    'trex': {
+        r'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_bg/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
+        'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv/ckpt_eval_surf_masked/imgs_pt_train',
+    },
+    'floss': {
+        r'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_bg/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
+        'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_2/ckpt_eval_surf_masked/imgs_pt_train',
+    },
+    'floss_small': {
+        'NeuS': '/rds/project/rds-qxpdOeYWi78/NeuS/exp/{}/womask_bg/fine_mesh/imgs_pt_train',
+        r'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_bg/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
+        'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_2/ckpt_eval_surf_masked/imgs_pt_train',
+    },
+    'toy_glass': {
+        r'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_bg/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
+        'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv/ckpt_eval_surf_masked/imgs_pt_train',
+    },
+    'stand_rl': {
+        r'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_bg/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
+        'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv/ckpt_eval_surf_masked/imgs_pt_train',
+    },
+    'hair': {
+        r'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_bg/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
+        'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv/ckpt_eval_surf_masked/imgs_pt_train',
+    },
+    'comb': {
+        r'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_bg/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
+        'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv/ckpt_eval_surf_masked/imgs_pt_train',
+    },
+    'rabit': {
+        r'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_bg/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
+        'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_2/ckpt_eval_surf_masked/imgs_pt_train',
+    },
+    'heart': {
+        # 'NeuS': '/rds/project/rds-qxpdOeYWi78/NeuS/exp/{}/womask_bg/fine_mesh/imgs_pt_train',
+        r'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/synllff_bg/ckpt_eval_cuvol/thresh_10/imgs_pt_train',
+        'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/llff_mlv_bg/l2_norm_no_sparse_d2_less_trunc_tv_10_zero_lv_high_n_2/ckpt_eval_surf_masked/imgs_pt_train',
+    },
     
 }
 
 scene_name_map = {
     'flower_thin': 'gypso',
     'glass_cup': 'mug',
+    'floss_small': 'floss',
     # 'chair_re': 'chair',
     # 'hotdog_re': 'hotdog',
     'rough': 'cup',
+    'cup_yellow_circle': 'yellow cup',
+    'cup_dark_circle': 'dark cup',
 }
 
 fig,axes = make_plot(scenes, methods, transpose=False,
                      special_index=special_index, scene_name_map=scene_name_map,
                      special_group=special_group, special_group_replace=special_group_replace,
-                     fontsize=20, spacing=0.02, verbose=False)
+                     fontsize=35, spacing=0.02, verbose=True)
 
 
+# out_path = 'paper/llff_rebuttal.png'
 out_path = 'paper/llff.png'
 out_path = 'paper/llff.pdf'
 fig.savefig(out_path, facecolor='white', bbox_inches='tight', dpi=100)

@@ -53,13 +53,41 @@ def main():
     obj = pv.read(args.input_path)
 
     # mask = (obj.points < 1.5).all(axis=-1) & (obj.points > -1.5).all(axis=-1)
+    mask = (obj.points < 999).all(axis=-1)
 
     # if args.mask_crop:
     #     filter_mask = ((obj.points > np.array([[0.1, 0.1, -100]])).all(axis=-1)) & ((obj.points < np.array([[100, 100, 0.]])).all(axis=-1))
     #     mask = mask & (~filter_mask)
 
-    # obj['mask'] = mask
-    # obj = obj.threshold(scalars='mask', value=True)
+    point_size = 4
+
+    if '/floss/' in args.input_path:
+        filter_mask = (obj.points > np.array([[-0.89736509, -0.46189117, -0.79882813]])).all(axis=-1) & (obj.points < np.array([[0.77148426, 0.41682351, -0.22690392]])).all(axis=-1)
+        mask = mask & (filter_mask)
+        zoom_factor = 0.6
+    elif '/floss_small/' in args.input_path:
+        # filter_mask = (obj.points > np.array([[-1.27324831, -0.99444789, -0.36672032]])).all(axis=-1) \
+        #     & (obj.points < np.array([[1.36002409, 0.83687449, 0.16210938]])).all(axis=-1)
+        # zoom_factor = 0.6
+        filter_mask = (obj.points > np.array([[-1.66661298, -1.06961954, -0.49218750]])).all(axis=-1) \
+            & (obj.points < np.array([[0.72788441, 1.44297194, 0.99609375]])).all(axis=-1)
+        mask = mask & (filter_mask)
+        zoom_factor = 0.6
+    elif '/comb/' in args.input_path:
+        point_size = 1
+        zoom_factor = 1
+    elif '/rabit/' in args.input_path:
+        pass
+        # filter_mask = (obj.points > np.array([[-0.11393225, -0.08305466, -0.64564204]])).all(axis=-1) \
+        #     & (obj.points < np.array([[0.27722871, 0.30175781, -0.29757828]])).all(axis=-1)
+        # mask = mask & (filter_mask)
+    elif '/heart/' in args.input_path:
+        filter_mask = (obj.points > np.array([[-1.56121540, -0.57279229, -0.52182353]])).all(axis=-1) \
+            & (obj.points < np.array([[1.61493480, 1.49414063, 0.99609375]])).all(axis=-1)
+        mask = mask & (filter_mask)
+
+    obj['mask'] = mask
+    obj = obj.threshold(scalars='mask', value=True)
 
 
     dset = LLFFDataset(args.dataset)
@@ -111,9 +139,9 @@ def main():
             p.show(screenshot=f'{args.out_dir}/{i:05d}.png', auto_close=False, zoom=zoom_factor)
         else:
             cpos = (t, focal_point, up)
-            obj.plot(color='white', cpos=cpos, 
+            obj.plot(color='white', cpos=cpos,
                     screenshot=f'{args.out_dir}/{i:05d}.png', off_screen=True, eye_dome_lighting=True,
-                    point_size=4, show_axes=False, background=background, window_size=img_size, zoom=zoom_factor,
+                    point_size=point_size, show_axes=False, background=background, window_size=img_size, zoom=zoom_factor,
                     notebook=False,
                     )
 

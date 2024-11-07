@@ -263,6 +263,10 @@ methods = {
     'GT': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/syn/ckpt_eval_cuvol/depth_spiral_mode_0.1/remeshed/imgs_gt_test',
     'NeuS': '/rds/project/rds-qxpdOeYWi78/NeuS/exp/{}/womask/fine_mesh/imgs_pt_test',
     'HFS': '/rds/project/rds-qxpdOeYWi78/HFS/exps_1.5/{}/womask_hfs/fine_mesh/imgs_pt_test',
+    'neuralangelo': '/rds/project/rds-qxpdOeYWi78/neuralangelo/logs/syn/{}/imgs_pt_test',
+    'NeRRF': '/rds/project/rds-qxpdOeYWi78/NeRRF/eval_log/{}/imgs_pt_test',
+
+
     r'MipNeRF360': '/rds/project/rds-qxpdOeYWi78/multinerf/results/blender/{}/pts/lv_50_pts/imgs_pt_test',
     # r'MipNeRF360 ($\sigma=50$)': '/rds/project/rds-qxpdOeYWi78/multinerf/results/blender/{}/pts/lv_50_pts/imgs_pt_test',
     r'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/syn/ckpt_eval_cuvol/thresh_90/ckpt/imgs_pt_test',
@@ -271,7 +275,7 @@ methods = {
     
     # 'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/good_trunc/solid_less_trunc/ckpt_eval_surf_single/ckpt/imgs_pt_test',
     # 'Ours new': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/good_trunc/solid_less_trunc_converge_lv/ckpt_eval_surf_single/ckpt/imgs_pt',
-    'Ours (Conv Lv)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/good_trunc/solid_less_trunc_converge_lv/ckpt_eval_surf_masked/ckpt/imgs_pt',
+    # 'Ours (Conv Lv)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/good_trunc/solid_less_trunc_converge_lv/ckpt_eval_surf_masked/ckpt/imgs_pt',
     'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/good_trunc/solid_less_trunc/ckpt_eval_surf_masked/ckpt/imgs_pt_test',
     
     # 'MipNeRF360 (depth 0.1)': '/rds/project/rds-qxpdOeYWi78/multinerf/results/blender/{}/pts/distance_mode_01_pts/imgs_pt_test',
@@ -281,14 +285,16 @@ methods = {
 }
 
 scenes = {
+    "ship_re": 0, 
+    "ficus": 72,
     "lyre": 198,
-    "bee": 150, # 30, # 150
+    "bee": 30, # 30, # 150
     "stair": 0,
-    "fence": 78,
+    # "fence": 78,
     "scale": 0,
     "seat": 144,
     "well": 66,
-    "slide": 42,
+    # "slide": 42,
 }
 
 
@@ -305,10 +311,10 @@ scene_name_map = {
 
 fig,axes = make_plot(scenes, methods, transpose=True,
                      special_index=special_index, scene_name_map=scene_name_map,
-                     fontsize=25, spacing=0.02, verbose=False)
+                     fontsize=45, spacing=0.02, verbose=False)
 
 out_path = 'paper/delicate.png'
-# out_path = 'paper/delicate.pdf'
+out_path = 'paper/delicate.pdf'
 fig.savefig(out_path, facecolor='white', bbox_inches='tight', dpi=60)
 
 print(f"Saved to {out_path}")

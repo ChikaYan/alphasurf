@@ -167,6 +167,12 @@ def make_plot(scenes, methods, transpose=False,
             if scene in special_group and method in special_group_replace:
                 imgs_path = special_group_replace[method]
 
+            if scene == 'monkey' and method != 'RGB':
+                if method == 'GT':
+                    imgs_path = str(Path(imgs_path).parent / 'imgs_gt_test')
+                else:
+                    imgs_path = str(Path(imgs_path).parent / 'imgs_no_crop')
+
             # kwargs = {}
             kwargs = {'zoom': 1.25}
             if scene == 'scale':
@@ -180,6 +186,16 @@ def make_plot(scenes, methods, transpose=False,
                 kwargs['zoom'] = 1.75
             elif scene == 'ship_bottle':
                 kwargs['zoom'] = 2
+            elif scene == 'dinning_table':
+                kwargs['zoom'] = 1.75
+            elif scene == 'kitchen_table':
+                kwargs['zoom'] = 1.5
+            elif scene == 'monkey':
+                kwargs['zoom'] = 1.75
+            elif scene == 'double_table':
+                kwargs['zoom'] = 1.75
+            elif scene == 'leaf_vase':
+                kwargs['take_patch'] = ((100, 0), (600, 600))
 
             image_set = ImageSet(
                 imgs_path.format(scene), 
@@ -239,15 +255,19 @@ methods = {
     'GT': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/syn/ckpt_eval_cuvol/thresh_10/ckpt/imgs_gt_test',
     'NeuS': '/rds/project/rds-qxpdOeYWi78/NeuS/exp/{}/womask_white/fine_mesh/imgs_pt_test',
     'HFS': '/rds/project/rds-qxpdOeYWi78/HFS/exps_1.5/{}/womask_white_no_bg/fine_mesh/imgs_pt_test',
+    'neuralangelo': '/rds/project/rds-qxpdOeYWi78/neuralangelo/logs/syn/{}/imgs_pt_test',
+    'NeRRF': '/rds/project/rds-qxpdOeYWi78/NeRRF/eval_log/{}/imgs_pt_test',
+
+
     # r'MipNeRF360 ($\sigma=10$)': '/rds/project/rds-qxpdOeYWi78/multinerf/results/blender/{}/pts/lv_10_pts/imgs_pt_test',
     r'MipNeRF360': '/rds/project/rds-qxpdOeYWi78/multinerf/results/blender/{}/pts/lv_50_pts/imgs_pt_test',
     # r'Plenoxels ($\sigma=10$)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/syn/ckpt_eval_cuvol/thresh_10/ckpt/imgs_pt_test',
     r'Plenoxels': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/syn/ckpt_eval_cuvol/thresh_30/ckpt/imgs_pt_test',
     # r'Plenoxels ($\sigma=50$)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/syn/ckpt_eval_cuvol/thresh_50/ckpt/imgs_pt_test',
     # r'Plenoxels ($\sigma=100$)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/nerf/syn/ckpt_eval_cuvol/thresh_100/ckpt/imgs_pt_test',
-    'Ours (Conv Lv)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/norm_l12/norm_l12_decay_9_converge_lv_2/ckpt_eval_surf_masked/ckpt/imgs_pt',
-    'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/norm_l12/norm_l12_decay_9/ckpt_eval_surf_masked/ckpt/imgs_pt',
-    'norm_l12_decay_9_low_tv_2': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/norm_l12/norm_l12_decay_9_low_tv_2/ckpt_eval_surf_masked/ckpt/imgs_pt',
+    # 'Ours (Conv Lv)': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/norm_l12/norm_l12_decay_9_low_tv_2_conv_lv/ckpt_eval_surf_masked/ckpt/imgs_pt',
+    'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/norm_l12/norm_l12_decay_9_low_tv_2/ckpt_eval_surf_masked/ckpt/imgs_pt',
+    # 'norm_l12_decay_9_low_tv_2': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/norm_l12/norm_l12_decay_9_low_tv_2/ckpt_eval_surf_masked/ckpt/imgs_pt',
     
     # 'Ours': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/good_trunc/solid_less_trunc/ckpt_eval_surf_single/ckpt/imgs_pt_test',
     # 'trans': '/rds/project/rds-qxpdOeYWi78/plenoxels/opt/ckpt/tuning/{}/re_submit/trans/ckpt_eval_surf_single/ckpt/imgs_pt',
@@ -295,7 +315,8 @@ scenes = {
     "bottle_2": 174, # 90, #66,
     # "hourglass": 30,
     # "ship_bottle": 126,
-    "monkey": 0,
+    # "monkey": 0,
+    "monkey": 1,
     "double_table": 84,
     "leaf_vase": 48,
     # "toothbrush": 114,
@@ -311,14 +332,16 @@ scene_name_map = {
     'glasses2': 'glasses',
     'lego_transparent': 'lego t',
     'bottle_2': 'bottle',
-    'dinning_table':'table'
+    'dinning_table':'table',
+    'leaf_vase': 'vase',
 }
 
 fig,axes = make_plot(scenes, methods, transpose=True,
                      special_index=special_index, scene_name_map=scene_name_map,
-                     fontsize=25, spacing=0.02, verbose=False)
+                     fontsize=45, spacing=0.02, verbose=False)
 
 out_path = 'paper/semi_trans_new.png'
+out_path = 'paper/semi_trans_new.pdf'
 fig.savefig(out_path, facecolor='white', bbox_inches='tight', dpi=60)
 
 print(f"Saved to {out_path}")
